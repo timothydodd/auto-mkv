@@ -89,7 +89,16 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
             // This now runs before checking if drives are ready, so files can be transferred even without a disc
             if (!skipCheck)
             {
-                await _mediaMoverService.FindFiles(_ripSettings.Output);
+                _logger.LogInformation("Checking for files to transfer/move...");
+                try
+                {
+                    await _mediaMoverService.FindFiles(_ripSettings.Output);
+                    _logger.LogInformation("Completed file transfer/move check");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error during file transfer/move check");
+                }
             }
             else
             {

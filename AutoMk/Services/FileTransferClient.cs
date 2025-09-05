@@ -54,12 +54,18 @@ public class FileTransferClient : IFileTransferClient
             return false;
         }
 
-        // Check if target service is available
-        if (!await IsServiceAvailableAsync(cancellationToken))
+        // Check if target service is available with a short timeout
+        _logger.LogInformation("Checking if file transfer service is available at: {ServiceUrl}", _settings.TargetServiceUrl);
+        using var healthCheckCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        healthCheckCts.CancelAfter(TimeSpan.FromSeconds(10)); // 10 second timeout for health check
+        
+        if (!await IsServiceAvailableAsync(healthCheckCts.Token))
         {
-            _logger.LogWarning("Target service is not available, skipping file transfer");
+            _logger.LogWarning("Target service is not available (health check failed or timed out), skipping file transfer for: {FilePath}", filePath);
             return false;
         }
+        
+        _logger.LogInformation("File transfer service is available, proceeding with transfer");
 
         await _transferSemaphore.WaitAsync(cancellationToken);
 
@@ -161,12 +167,36 @@ public class FileTransferClient : IFileTransferClient
     {
         try
         {
-            var response = await _httpClient.GetAsync($"{_settings.TargetServiceUrl}/health", cancellationToken);
-            return response.IsSuccessStatusCode;
+            var healthUrl = $"{_settings.TargetServiceUrl}/health";
+            _logger.LogDebug("Making health check request to: {HealthUrl}", healthUrl);
+            
+            var response = await _httpClient.GetAsync(healthUrl, cancellationToken);
+            var isAvailable = response.IsSuccessStatusCode;
+            
+            if (isAvailable)
+            {
+                _logger.LogDebug("Service health check successful - Status: {StatusCode}", response.StatusCode);
+            }
+            else
+            {
+                _logger.LogWarning("Service health check failed - Status: {StatusCode}", response.StatusCode);
+            }
+            
+            return isAvailable;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Service availability check timed out after 10 seconds for: {ServiceUrl}", _settings.TargetServiceUrl);
+            return false;
+        }
+        catch (HttpRequestException httpEx)
+        {
+            _logger.LogWarning(httpEx, "Service availability check failed due to HTTP error for: {ServiceUrl}", _settings.TargetServiceUrl);
+            return false;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Service availability check failed");
+            _logger.LogWarning(ex, "Service availability check failed with unexpected error for: {ServiceUrl}", _settings.TargetServiceUrl);
             return false;
         }
     }

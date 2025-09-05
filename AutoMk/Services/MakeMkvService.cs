@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using AutoMk.Interfaces;
 using AutoMk.Models;
@@ -246,18 +247,41 @@ public class MakeMkvService : IMakeMkvService
 
         try
         {
+            _logger.LogInformation("Starting MakeMKV process with arguments: {Arguments}", arguments);
             process.Start();
+            _logger.LogInformation("MakeMKV process started, reading output...");
 
-            while (!process.StandardOutput.EndOfStream)
+            var lineCount = 0;
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2)); // 2 minute timeout
+            
+            try
             {
-                var line = await process.StandardOutput.ReadLineAsync();
-                if (!string.IsNullOrEmpty(line))
+                while (!process.StandardOutput.EndOfStream)
                 {
-                    ParseDriveInfo(line, drives);
+                    var line = await process.StandardOutput.ReadLineAsync(cts.Token);
+                    if (!string.IsNullOrEmpty(line))
+                    {
+                        lineCount++;
+                        _logger.LogDebug("MakeMKV output line {LineCount}: {Line}", lineCount, line);
+                        ParseDriveInfo(line, drives);
+                    }
                 }
-            }
+                
+                _logger.LogInformation("Finished reading MakeMKV output, processed {LineCount} lines", lineCount);
 
-            await process.WaitForExitAsync();
+                await process.WaitForExitAsync(cts.Token);
+                _logger.LogInformation("MakeMKV process completed with exit code: {ExitCode}", process.ExitCode);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogError("MakeMKV drive scan timed out after 2 minutes");
+                if (!process.HasExited)
+                {
+                    _logger.LogInformation("Killing MakeMKV process due to timeout");
+                    process.Kill(entireProcessTree: true);
+                }
+                return new List<AkDriveInfo>();
+            }
 
             _logger.LogInformation("Found {DriveCount} available drives", drives.Count);
             return drives.Values.ToList();
