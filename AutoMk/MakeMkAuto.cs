@@ -184,7 +184,23 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
 
             // Open drive when done
             _logger.LogInformation("Opening drive");
-            _watcher.OpenDrive(drive.DriveLetter);
+            
+            if (_watcher.CanEjectDrive(drive.DriveLetter))
+            {
+                var ejectResult = _watcher.OpenDrive(drive.DriveLetter);
+                if (!string.IsNullOrEmpty(ejectResult))
+                {
+                    _logger.LogWarning(ejectResult);
+                }
+                else
+                {
+                    _logger.LogInformation($"Successfully ejected drive {drive.DriveLetter}");
+                }
+            }
+            else
+            {
+                _logger.LogWarning($"Drive {drive.DriveLetter} does not support ejection or is not accessible");
+            }
         }
         catch (Exception ex)
         {

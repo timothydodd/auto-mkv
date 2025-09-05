@@ -1,4 +1,10 @@
 ﻿using AutoMk.Models;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Threading;
 
 namespace AutoMk
 {
@@ -22,8 +28,13 @@ namespace AutoMk
         public string OpenDrive(string letter)
         {
             string returnString = "";
+            const int maxAttempts = 10; // Maximum 10 seconds to try ejecting
+            int attempts = 0;
+            
             do
             {
+                attempts++;
+                
                 Process ejectProcess = new();
                 ProcessStartInfo ejectStartInfo = new()
                 {
@@ -50,6 +61,12 @@ namespace AutoMk
                     Console.WriteLine("Failed to open CD/DVD drive tray.");
                 }
 
+                // Break if we've exceeded max attempts to prevent infinite loop
+                if (attempts >= maxAttempts)
+                {
+                    returnString = $"Warning: Drive {letter} did not eject after {maxAttempts} attempts";
+                    break;
+                }
 
             } while (IsDriveReady(letter));
 
