@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.7.34018.315
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AutoMk", "AutoMk\AutoMk.csproj", "{0C40EEBB-DD72-47B6-818A-1B5BE529D58B}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+		wsl|x64 = wsl|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{0C40EEBB-DD72-47B6-818A-1B5BE529D58B}.Debug|x64.ActiveCfg = Debug|x64
+		{0C40EEBB-DD72-47B6-818A-1B5BE529D58B}.Debug|x64.Build.0 = Debug|x64
+		{0C40EEBB-DD72-47B6-818A-1B5BE529D58B}.Release|x64.ActiveCfg = Release|x64
+		{0C40EEBB-DD72-47B6-818A-1B5BE529D58B}.Release|x64.Build.0 = Release|x64
+		{0C40EEBB-DD72-47B6-818A-1B5BE529D58B}.wsl|x64.ActiveCfg = wsl|x64
+		{0C40EEBB-DD72-47B6-818A-1B5BE529D58B}.wsl|x64.Build.0 = wsl|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {DA5744B2-3414-4487-B673-2BEBE370E496}
+	EndGlobalSection
+EndGlobal

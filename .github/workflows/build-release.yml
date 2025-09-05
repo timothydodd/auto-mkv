@@ -1,0 +1,151 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+    
+    - name: Get version
+      id: version
+      run: |
+        if ("${{ github.event_name }}" -eq "push") {
+          $version = "${{ github.ref }}".Replace("refs/tags/v", "")
+        } else {
+          $version = "${{ github.event.inputs.version }}"
+        }
+        echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+      shell: pwsh
+    
+    - name: Update version in project
+      run: |
+        $csproj = Get-Content "AutoMk/AutoMk.csproj" -Raw
+        $csproj = $csproj -replace '<Version>.*</Version>', "<Version>${{ steps.version.outputs.VERSION }}</Version>"
+        Set-Content "AutoMk/AutoMk.csproj" $csproj
+      shell: pwsh
+    
+    - name: Restore dependencies
+      run: dotnet restore
+      working-directory: ./AutoMk
+    
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+      working-directory: ./AutoMk
+    
+    - name: Publish Windows x64
+      run: |
+        dotnet publish --configuration Release --runtime win-x64 --self-contained true `
+          --output ../publish/win-x64 `
+          -p:PublishSingleFile=true `
+          -p:PublishReadyToRun=true `
+          -p:IncludeNativeLibrariesForSelfExtract=true
+      working-directory: ./AutoMk
+    
+    - name: Create ZIP package
+      run: |
+        Compress-Archive -Path publish/win-x64/* -DestinationPath AutoMk-${{ steps.version.outputs.VERSION }}-win-x64.zip
+      shell: pwsh
+    
+    - name: Calculate SHA256
+      id: sha256
+      run: |
+        $hash = (Get-FileHash -Path "AutoMk-${{ steps.version.outputs.VERSION }}-win-x64.zip" -Algorithm SHA256).Hash
+        echo "SHA256=$hash" >> $env:GITHUB_OUTPUT
+      shell: pwsh
+    
+    - name: Create Release
+      id: create_release
+      uses: softprops/action-gh-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ steps.version.outputs.VERSION }}
+        name: AutoMk v${{ steps.version.outputs.VERSION }}
+        body: |
+          ## AutoMk v${{ steps.version.outputs.VERSION }}
+          
+          ### Installation via WinGet
+          
+          ```powershell
+          winget install AutoMk
+          ```
+          
+          ### Manual Installation
+          
+          1. Download `AutoMk-${{ steps.version.outputs.VERSION }}-win-x64.zip`
+          2. Extract to a folder in your PATH (e.g., `C:\Program Files\AutoMk\`)
+          3. Run `automk.exe` from any terminal
+          
+          ### Requirements
+          
+          - Windows 10/11 x64
+          - MakeMKV installed and licensed
+          - OMDB API key (configured in appsettings.json)
+          
+          ### SHA256 Checksum
+          
+          ```
+          ${{ steps.sha256.outputs.SHA256 }}
+          ```
+        draft: false
+        prerelease: false
+        files: |
+          ./AutoMk-${{ steps.version.outputs.VERSION }}-win-x64.zip
+    
+    - name: Update WinGet manifest
+      run: |
+        $manifestPath = "manifests/a/AutoMk/AutoMk/${{ steps.version.outputs.VERSION }}"
+        New-Item -ItemType Directory -Force -Path $manifestPath
+        
+        # Update installer manifest with correct SHA256
+        $installerContent = @"
+        PackageIdentifier: AutoMk.AutoMk
+        PackageVersion: ${{ steps.version.outputs.VERSION }}
+        Platform:
+        - Windows.Desktop
+        MinimumOSVersion: 10.0.17763.0
+        InstallerType: zip
+        Scope: user
+        InstallModes:
+        - interactive
+        - silent
+        UpgradeBehavior: install
+        Commands:
+        - automk
+        Installers:
+        - Architecture: x64
+          InstallerUrl: https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.VERSION }}/AutoMk-${{ steps.version.outputs.VERSION }}-win-x64.zip
+          InstallerSha256: ${{ steps.sha256.outputs.SHA256 }}
+          NestedInstallerType: portable
+          NestedInstallerFiles:
+          - RelativeFilePath: automk.exe
+        ManifestType: installer
+        ManifestVersion: 1.6.0
+        "@
+        Set-Content -Path "$manifestPath/AutoMk.AutoMk.installer.yaml" -Value $installerContent
+      shell: pwsh
+    
+    - name: Commit WinGet manifest
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add manifests/
+        git commit -m "Update WinGet manifest for v${{ steps.version.outputs.VERSION }}" || echo "No changes to commit"
+        git push || echo "No changes to push"
