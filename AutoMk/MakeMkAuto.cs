@@ -108,27 +108,34 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
             }
 
             _isAsleep = false;
+            _logger.LogInformation("Drive(s) detected as ready, checking for available drives with discs...");
 
             // Get available drives
             var drives = await GetAvailableDrivesAsync();
             if (!drives.Any())
             {
-                _logger.LogInformation("No drives with discs found, waiting...");
+                _logger.LogInformation("No drives with discs found after drive ready detection, waiting...");
                 await Task.Delay(3000); // Wait before checking again
                 continue; // Continue the loop instead of exiting
             }
 
+            _logger.LogInformation($"Found {drives.Count} drive(s) with discs ready for processing");
+
             // Process each drive
             foreach (var drive in drives)
             {
+                _logger.LogInformation($"Attempting to process drive {drive.DriveLetter} with disc: {drive.CDName}");
+                
                 if (!_watcher.IsDriveReady(drive.DriveLetter))
                 {
-                    _logger.LogInformation($"Drive {drive.DriveLetter} not ready, skipping");
+                    _logger.LogInformation($"Drive {drive.DriveLetter} not ready during individual check, skipping");
                     await Task.Delay(2000);
                     continue;
                 }
 
+                _logger.LogInformation($"Drive {drive.DriveLetter} confirmed ready, beginning processing...");
                 await ProcessDriveAsync(drive);
+                _logger.LogInformation($"Completed processing drive {drive.DriveLetter}");
             }
         }
     }
@@ -141,11 +148,25 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
 
         try
         {
+            _logger.LogDebug("Starting MakeMKV drive scan...");
+            
             // Use the MakeMkvService wrapper to get available drives
             var drives = await _makeMkvService.GetAvailableDrivesAsync();
 
             watch.Stop();
             _logger.LogInformation($"Drive check took {watch.Elapsed.TotalSeconds:F2} seconds, found {drives.Count} drives");
+
+            if (drives.Any())
+            {
+                foreach (var drive in drives)
+                {
+                    _logger.LogInformation($"Drive found: {drive.DriveLetter} - '{drive.CDName}' (ID: {drive.Id})");
+                }
+            }
+            else
+            {
+                _logger.LogDebug("MakeMKV drive scan returned no drives with discs");
+            }
 
             return drives;
         }
@@ -160,18 +181,25 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
     [Obsolete]
     private async Task ProcessDriveAsync(AkDriveInfo drive)
     {
+        _logger.LogInformation($"ProcessDriveAsync started for drive {drive.DriveLetter} with disc '{drive.CDName}'");
+        
         _consoleOutput.ShowDiscDetected(drive.CDName);
         _consoleOutput.ShowProcessingStarted(drive.CDName);
 
         try
         {
+            _logger.LogInformation($"Getting disc information for drive {drive.DriveLetter}...");
+            
             // Get disc information using the new wrapper
             var success = await _makeMkvService.GetDiscInfoAsync(drive);
             if (!success)
             {
+                _logger.LogError($"Failed to get disc information for drive {drive.Id}");
                 _consoleOutput.ShowError($"Failed to get disc information for drive {drive.Id}");
                 return;
             }
+            
+            _logger.LogInformation($"Successfully got disc information for drive {drive.DriveLetter}, found {drive.Titles?.Count ?? 0} titles");
 
             if (_ripSettings.ManualMode)
             {
