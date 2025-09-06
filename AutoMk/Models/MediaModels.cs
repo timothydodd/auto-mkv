@@ -41,21 +41,17 @@ public class SeriesState
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public List<DiscPattern> KnownDiscPatterns { get; set; } = new();
     
-    // Configuration properties - these should come from SeriesProfile instead
+    // Configuration properties - populated from SeriesProfile but used during runtime processing
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    [Obsolete("Use SeriesProfile.MinEpisodeSizeGB instead")]
     public double? MinEpisodeSizeGB { get; set; } = null;
     
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    [Obsolete("Use SeriesProfile.MaxEpisodeSizeGB instead")]
     public double? MaxEpisodeSizeGB { get; set; } = null;
     
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    [Obsolete("Use SeriesProfile.TrackSortingStrategy instead")]
     public TrackSortingStrategy? TrackSortingStrategy { get; set; } = null;
     
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    [Obsolete("Use SeriesProfile.DoubleEpisodeHandling instead")]
     public DoubleEpisodeHandling? DoubleEpisodeHandling { get; set; } = null;
     
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]

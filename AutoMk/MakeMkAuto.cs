@@ -65,7 +65,6 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         _consoleOutput = consoleOutput ?? throw new ArgumentNullException(nameof(consoleOutput));
     }
 
-    [Obsolete]
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var pdrives = _watcher.PrintDrives();
@@ -134,7 +133,7 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
             foreach (var drive in drives)
             {
                 _logger.LogInformation($"Attempting to process drive {drive.DriveLetter} with disc: {drive.CDName}");
-                
+
                 if (!_watcher.IsDriveReady(drive.DriveLetter))
                 {
                     _logger.LogInformation($"Drive {drive.DriveLetter} not ready during individual check, skipping");
@@ -158,7 +157,7 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         try
         {
             _logger.LogDebug("Starting MakeMKV drive scan...");
-            
+
             // Use the MakeMkvService wrapper to get available drives
             var drives = await _makeMkvService.GetAvailableDrivesAsync();
 
@@ -187,18 +186,17 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         }
     }
 
-    [Obsolete]
     private async Task ProcessDriveAsync(AkDriveInfo drive)
     {
         _logger.LogInformation($"ProcessDriveAsync started for drive {drive.DriveLetter} with disc '{drive.CDName}'");
-        
+
         _consoleOutput.ShowDiscDetected(drive.CDName);
         _consoleOutput.ShowProcessingStarted(drive.CDName);
 
         try
         {
             _logger.LogInformation($"Getting disc information for drive {drive.DriveLetter}...");
-            
+
             // Get disc information using the new wrapper
             var success = await _makeMkvService.GetDiscInfoAsync(drive);
             if (!success)
@@ -207,7 +205,7 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
                 _consoleOutput.ShowError($"Failed to get disc information for drive {drive.Id}");
                 return;
             }
-            
+
             _logger.LogInformation($"Successfully got disc information for drive {drive.DriveLetter}, found {drive.Titles?.Count ?? 0} titles");
 
             if (_ripSettings.ManualMode)
@@ -221,7 +219,7 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
 
             // Open drive when done
             _logger.LogInformation("Opening drive");
-            
+
             if (_watcher.CanEjectDrive(drive.DriveLetter))
             {
                 var ejectResult = _watcher.OpenDrive(drive.DriveLetter);
@@ -321,7 +319,6 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         return name;
     }
 
-    [Obsolete]
     private async Task ProcessDriveAutomaticModeAsync(AkDriveInfo drive)
     {
         // Step 1: Pre-identify media before determining what to rip

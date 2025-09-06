@@ -17,6 +17,7 @@ public class SeriesConfigurationService : ISeriesConfigurationService
     private readonly ILogger<SeriesConfigurationService> _logger;
     private readonly IConsolePromptService _promptService;
     private readonly IPatternLearningService _patternLearningService;
+    private bool _acceptAllSuggestionsForSession = false;
 
     public SeriesConfigurationService(ILogger<SeriesConfigurationService> logger, IConsolePromptService promptService, IPatternLearningService patternLearningService)
     {
@@ -571,6 +572,21 @@ public class SeriesConfigurationService : ISeriesConfigurationService
 
         // Use pattern suggestion if confidence is high enough
         var finalSuggestion = confidence > 0.7 ? patternSuggestion : suggestedEpisode;
+        
+        // If user has chosen to accept all suggestions for this session, skip confirmation
+        if (_acceptAllSuggestionsForSession)
+        {
+            _logger.LogInformation($"Auto-accepting episode {finalSuggestion} for track {trackName} (session-wide auto-accept enabled)");
+            
+            // Record the selection for pattern learning (only for UserConfirmed strategy)
+            if (!string.IsNullOrEmpty(discName) && !string.IsNullOrEmpty(trackId) && trackPosition >= 0)
+            {
+                _patternLearningService.RecordSelection(seriesTitle, season, discName, trackPosition, 
+                                                       trackId, trackName, finalSuggestion, finalSuggestion, true);
+            }
+            
+            return finalSuggestion;
+        }
         var isPatternBased = confidence > 0.7 && patternSuggestion != suggestedEpisode;
 
         _promptService.DisplayHeader("EPISODE CONFIRMATION");
@@ -602,13 +618,14 @@ public class SeriesConfigurationService : ISeriesConfigurationService
 
         while (true)
         {
-            var confirmResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
+            var confirmResult = _promptService.SelectPrompt<string>(new SelectPromptOptions
             {
                 Question = "What would you like to do?",
                 Choices = new List<PromptChoice>
                 {
-                    new("accept", "Accept suggested episode", true),
-                    new("choose", "Choose different episode", false)
+                    new("accept", "Accept suggested episode", "accept"),
+                    new("accept_all", "Accept all suggestions for this session", "accept_all"),
+                    new("choose", "Choose different episode", "choose")
                 }
             });
 
@@ -626,8 +643,15 @@ public class SeriesConfigurationService : ISeriesConfigurationService
                 return finalSuggestion;
             }
 
-            if (confirmResult.Value)
+            if (confirmResult.Value == "accept" || confirmResult.Value == "accept_all")
             {
+                // Enable auto-accept for the rest of the session if requested
+                if (confirmResult.Value == "accept_all")
+                {
+                    _acceptAllSuggestionsForSession = true;
+                    _logger.LogInformation("User enabled auto-accept for all episode suggestions for this session");
+                }
+                
                 var acceptedEpisode = finalSuggestion;
                 _logger.LogInformation($"User accepted suggested episode {acceptedEpisode} for track {trackName}");
                 
