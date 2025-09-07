@@ -122,6 +122,9 @@ public class MediaIdentificationService : IMediaIdentificationService
 
     public async Task<PreIdentifiedMedia?> PreIdentifyMediaAsync(string discName, List<AkTitle> titlesToRip)
     {
+        // Reset disc-specific auto-accept flag for the new disc
+        _seriesConfigurationService.ResetDiscAutoAccept();
+        
         _logger.LogInformation($"Pre-identifying media for disc: {discName}");
 
         try
@@ -409,8 +412,14 @@ public class MediaIdentificationService : IMediaIdentificationService
 
         if (seriesState.TrackSortingStrategy == TrackSortingStrategy.UserConfirmed)
         {
-            var (confirmedTracks, userEpisodeMapping, userSelections) = await HandleUserConfirmedSorting(sortedTracks, seriesInfo, seriesState, discName);
+            var (confirmedTracks, userEpisodeMapping, userSelections, skippedTracks) = await HandleUserConfirmedSorting(sortedTracks, seriesInfo, seriesState, discName);
             sortedTracks = confirmedTracks;
+            
+            // Handle skipped tracks by moving them to _trash folder
+            if (skippedTracks.Count > 0)
+            {
+                MoveSkippedTracksToTrash(outputPath, skippedTracks);
+            }
             
             discInfo.TrackToEpisodeMapping.Clear();
             foreach (var kvp in userEpisodeMapping)
@@ -1093,13 +1102,14 @@ public class MediaIdentificationService : IMediaIdentificationService
         return null;
     }
 
-    private async Task<(List<AkTitle> tracks, Dictionary<int, int> trackToEpisodeMap, List<TrackSelectionPattern> userSelections)> HandleUserConfirmedSorting(List<AkTitle> tracks, SeriesInfo seriesInfo, SeriesState seriesState, string discName)
+    private async Task<(List<AkTitle> tracks, Dictionary<int, int> trackToEpisodeMap, List<TrackSelectionPattern> userSelections, List<AkTitle> skippedTracks)> HandleUserConfirmedSorting(List<AkTitle> tracks, SeriesInfo seriesInfo, SeriesState seriesState, string discName)
     {
         _logger.LogInformation($"Starting user confirmation for {tracks.Count} tracks in {seriesInfo.Title}");
 
         var reorderedTracks = new List<AkTitle>();
         var trackToEpisodeMap = new Dictionary<int, int>(); // Maps track index to episode number
         var userSelections = new List<TrackSelectionPattern>(); // For pattern learning
+        var skippedTracks = new List<AkTitle>(); // Tracks marked for skipping (_trash folder)
         var availableEpisodes = new List<int>();
 
         // Calculate the maximum reasonable episode number for this season
@@ -1188,6 +1198,29 @@ public class MediaIdentificationService : IMediaIdentificationService
                 track.Id,
                 trackPosition);
             
+            // Handle skipped tracks
+            if (selectedEpisode == null)
+            {
+                // Create selection pattern for skipped track
+                var skippedSelection = new TrackSelectionPattern
+                {
+                    TrackId = track.Id,
+                    TrackName = track.Name,
+                    TrackOrderPosition = trackPosition,
+                    SuggestedEpisode = suggestedEpisode,
+                    SelectedEpisode = -1, // Use -1 to indicate skipped
+                    WasAccepted = false,
+                    SelectionDate = DateTime.Now,
+                    SelectionReason = "skipped"
+                };
+                userSelections.Add(skippedSelection);
+                
+                // Add track to skipped list for _trash folder processing
+                skippedTracks.Add(track);
+                _logger.LogInformation($"Track {track.Name} marked for skipping - will be moved to _trash folder");
+                continue; // Skip to next track
+            }
+            
             // Create selection pattern for learning
             var selection = new TrackSelectionPattern
             {
@@ -1195,27 +1228,74 @@ public class MediaIdentificationService : IMediaIdentificationService
                 TrackName = track.Name,
                 TrackOrderPosition = trackPosition,
                 SuggestedEpisode = suggestedEpisode,
-                SelectedEpisode = selectedEpisode,
-                WasAccepted = selectedEpisode == suggestedEpisode,
+                SelectedEpisode = selectedEpisode.Value,
+                WasAccepted = selectedEpisode.Value == suggestedEpisode,
                 SelectionDate = DateTime.Now,
-                SelectionReason = selectedEpisode == suggestedEpisode ? "accepted" : "manual_choice"
+                SelectionReason = selectedEpisode.Value == suggestedEpisode ? "accepted" : "manual_choice"
             };
             userSelections.Add(selection);
 
             // Remove the selected episode from available episodes
-            availableEpisodes.Remove(selectedEpisode);
+            availableEpisodes.Remove(selectedEpisode.Value);
 
             // Store the track with its confirmed episode assignment
             var trackIndex = reorderedTracks.Count;
             reorderedTracks.Add(track);
-            trackToEpisodeMap[trackIndex] = selectedEpisode;
+            trackToEpisodeMap[trackIndex] = selectedEpisode.Value;
 
-            _logger.LogInformation($"Track {track.Name} confirmed as episode {selectedEpisode}");
+            _logger.LogInformation($"Track {track.Name} confirmed as episode {selectedEpisode.Value}");
         }
 
-        _logger.LogInformation($"User confirmation complete. Confirmed {reorderedTracks.Count} tracks with {userSelections.Count} selections for pattern learning");
-        return (reorderedTracks, trackToEpisodeMap, userSelections);
+        _logger.LogInformation($"User confirmation complete. Confirmed {reorderedTracks.Count} tracks, skipped {skippedTracks.Count} tracks, with {userSelections.Count} selections for pattern learning");
+        return (reorderedTracks, trackToEpisodeMap, userSelections, skippedTracks);
     }
 
+    /// <summary>
+    /// Moves skipped tracks to a _trash folder within the output directory
+    /// </summary>
+    /// <param name="outputPath">The base output path</param>
+    /// <param name="skippedTracks">List of tracks to move to trash</param>
+    private void MoveSkippedTracksToTrash(string outputPath, List<AkTitle> skippedTracks)
+    {
+        try
+        {
+            // Create _trash folder in the output directory
+            var trashFolderPath = Path.Combine(outputPath, "_trash");
+            Directory.CreateDirectory(trashFolderPath);
+            
+            _logger.LogInformation($"Moving {skippedTracks.Count} skipped tracks to _trash folder: {trashFolderPath}");
+            
+            foreach (var track in skippedTracks)
+            {
+                try
+                {
+                    // Use file discovery service to find the ripped file
+                    var sourceFilePath = _fileDiscoveryService.FindRippedFile(outputPath, track);
+                    
+                    if (!string.IsNullOrEmpty(sourceFilePath) && _fileDiscoveryService.VerifyFile(sourceFilePath))
+                    {
+                        var fileName = Path.GetFileName(sourceFilePath);
+                        var destinationPath = Path.Combine(trashFolderPath, fileName);
+                        
+                        // Move file to trash folder
+                        File.Move(sourceFilePath, destinationPath);
+                        _logger.LogInformation($"Moved skipped track '{track.Name}' from '{sourceFilePath}' to '{destinationPath}'");
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"Could not find ripped file for skipped track '{track.Name}' (ID: {track.Id})");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"Failed to move skipped track '{track.Name}' to _trash folder");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Failed to create _trash folder or move skipped tracks");
+        }
+    }
 
 }

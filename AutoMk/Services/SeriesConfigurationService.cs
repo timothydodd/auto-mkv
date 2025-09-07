@@ -17,7 +17,7 @@ public class SeriesConfigurationService : ISeriesConfigurationService
     private readonly ILogger<SeriesConfigurationService> _logger;
     private readonly IConsolePromptService _promptService;
     private readonly IPatternLearningService _patternLearningService;
-    private bool _acceptAllSuggestionsForSession = false;
+    private bool _acceptAllSuggestionsForDisc = false;
 
     public SeriesConfigurationService(ILogger<SeriesConfigurationService> logger, IConsolePromptService promptService, IPatternLearningService patternLearningService)
     {
@@ -551,7 +551,7 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         return modifiedProfile;
     }
 
-    public async Task<int> ConfirmOrSelectEpisodeAsync(string seriesTitle, int season, int suggestedEpisode, string episodeTitle, string trackName, List<int> availableEpisodes, IEnhancedOmdbService enhancedOmdbService, List<AkTitle>? allTracks = null)
+    public async Task<int?> ConfirmOrSelectEpisodeAsync(string seriesTitle, int season, int suggestedEpisode, string episodeTitle, string trackName, List<int> availableEpisodes, IEnhancedOmdbService enhancedOmdbService, List<AkTitle>? allTracks = null)
     {
         // For backward compatibility - this version doesn't use pattern learning
         return await ConfirmOrSelectEpisodeWithPatternLearningAsync(seriesTitle, season, suggestedEpisode, episodeTitle, trackName, availableEpisodes, enhancedOmdbService, allTracks, "", "", -1);
@@ -560,7 +560,7 @@ public class SeriesConfigurationService : ISeriesConfigurationService
     /// <summary>
     /// Enhanced version with pattern learning support for UserConfirmed sorting strategy
     /// </summary>
-    public async Task<int> ConfirmOrSelectEpisodeWithPatternLearningAsync(string seriesTitle, int season, int suggestedEpisode, string episodeTitle, string trackName, List<int> availableEpisodes, IEnhancedOmdbService enhancedOmdbService, List<AkTitle>? allTracks, string discName, string trackId, int trackPosition)
+    public async Task<int?> ConfirmOrSelectEpisodeWithPatternLearningAsync(string seriesTitle, int season, int suggestedEpisode, string episodeTitle, string trackName, List<int> availableEpisodes, IEnhancedOmdbService enhancedOmdbService, List<AkTitle>? allTracks, string discName, string trackId, int trackPosition)
     {
         // Check if we have learned patterns for UserConfirmed strategy only
         var hasPatterns = !string.IsNullOrEmpty(discName) && trackPosition >= 0 && 
@@ -573,10 +573,10 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         // Use pattern suggestion if confidence is high enough
         var finalSuggestion = confidence > 0.7 ? patternSuggestion : suggestedEpisode;
         
-        // If user has chosen to accept all suggestions for this session, skip confirmation
-        if (_acceptAllSuggestionsForSession)
+        // If user has chosen to accept all suggestions for this disc, skip confirmation
+        if (_acceptAllSuggestionsForDisc)
         {
-            _logger.LogInformation($"Auto-accepting episode {finalSuggestion} for track {trackName} (session-wide auto-accept enabled)");
+            _logger.LogInformation($"Auto-accepting episode {finalSuggestion} for track {trackName} (disc-wide auto-accept enabled)");
             
             // Record the selection for pattern learning (only for UserConfirmed strategy)
             if (!string.IsNullOrEmpty(discName) && !string.IsNullOrEmpty(trackId) && trackPosition >= 0)
@@ -609,9 +609,13 @@ public class SeriesConfigurationService : ISeriesConfigurationService
             Console.WriteLine($"Episode Title: {episodeTitle}");
         }
         
-        if (hasPatterns && !isPatternBased)
+        if (hasPatterns && !isPatternBased && confidence <= 0.7)
         {
             Console.WriteLine($"Note: UserConfirmed pattern available but confidence is low ({confidence:P0})");
+        }
+        else if (hasPatterns && !isPatternBased && confidence > 0.7)
+        {
+            Console.WriteLine($"Note: UserConfirmed pattern matches default suggestion (confidence: {confidence:P0})");
         }
         
         Console.WriteLine();
@@ -624,8 +628,9 @@ public class SeriesConfigurationService : ISeriesConfigurationService
                 Choices = new List<PromptChoice>
                 {
                     new("accept", "Accept suggested episode", "accept"),
-                    new("accept_all", "Accept all suggestions for this session", "accept_all"),
-                    new("choose", "Choose different episode", "choose")
+                    new("accept_all", "Accept all suggestions for this disc", "accept_all"),
+                    new("choose", "Choose different episode", "choose"),
+                    new("skip", "Skip this track (move to _trash folder)", "skip")
                 }
             });
 
@@ -645,11 +650,11 @@ public class SeriesConfigurationService : ISeriesConfigurationService
 
             if (confirmResult.Value == "accept" || confirmResult.Value == "accept_all")
             {
-                // Enable auto-accept for the rest of the session if requested
+                // Enable auto-accept for the rest of the disc if requested
                 if (confirmResult.Value == "accept_all")
                 {
-                    _acceptAllSuggestionsForSession = true;
-                    _logger.LogInformation("User enabled auto-accept for all episode suggestions for this session");
+                    _acceptAllSuggestionsForDisc = true;
+                    _logger.LogInformation("User enabled auto-accept for all episode suggestions for this disc");
                 }
                 
                 var acceptedEpisode = finalSuggestion;
@@ -663,6 +668,19 @@ public class SeriesConfigurationService : ISeriesConfigurationService
                 }
                 
                 return acceptedEpisode;
+            }
+            else if (confirmResult.Value == "skip")
+            {
+                _logger.LogInformation($"User chose to skip track {trackName} - will be moved to _trash folder");
+                
+                // Record the skip selection for pattern learning (only for UserConfirmed strategy)
+                if (!string.IsNullOrEmpty(discName) && !string.IsNullOrEmpty(trackId) && trackPosition >= 0)
+                {
+                    _patternLearningService.RecordSelection(seriesTitle, season, discName, trackPosition, 
+                                                           trackId, trackName, finalSuggestion, -1, false);
+                }
+                
+                return null; // Indicates the track should be skipped
             }
             else
             {
@@ -768,6 +786,16 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         }
         
         return previews;
+    }
+
+    /// <summary>
+    /// Resets the disc-wide auto-accept flag for processing a new disc
+    /// This should be called at the start of each new disc processing
+    /// </summary>
+    public void ResetDiscAutoAccept()
+    {
+        _acceptAllSuggestionsForDisc = false;
+        _logger.LogDebug("Reset disc-wide auto-accept flag for new disc processing");
     }
 
     private (double minSize, double maxSize) PromptForSizeRange()

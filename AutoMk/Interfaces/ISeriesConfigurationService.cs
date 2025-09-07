@@ -72,8 +72,8 @@ public interface ISeriesConfigurationService
     /// <param name="availableEpisodes">List of available episode numbers</param>
     /// <param name="enhancedOmdbService">Service for fetching episode information</param>
     /// <param name="allTracks">Optional list of all tracks for context</param>
-    /// <returns>The confirmed episode number</returns>
-    Task<int> ConfirmOrSelectEpisodeAsync(
+    /// <returns>The confirmed episode number, or null if the track should be skipped</returns>
+    Task<int?> ConfirmOrSelectEpisodeAsync(
         string seriesTitle, 
         int season, 
         int suggestedEpisode, 
@@ -97,8 +97,8 @@ public interface ISeriesConfigurationService
     /// <param name="discName">The disc name for pattern matching</param>
     /// <param name="trackId">The track ID</param>
     /// <param name="trackPosition">The track position (0-based)</param>
-    /// <returns>The confirmed episode number</returns>
-    Task<int> ConfirmOrSelectEpisodeWithPatternLearningAsync(
+    /// <returns>The confirmed episode number, or null if the track should be skipped</returns>
+    Task<int?> ConfirmOrSelectEpisodeWithPatternLearningAsync(
         string seriesTitle, 
         int season, 
         int suggestedEpisode, 
@@ -120,4 +120,10 @@ public interface ISeriesConfigurationService
     /// <param name="discName">The disc name</param>
     /// <param name="userSelections">List of all user selections for the disc</param>
     Task CompletePatternLearningAsync(string seriesTitle, int season, string discName, List<TrackSelectionPattern> userSelections);
+
+    /// <summary>
+    /// Resets the disc-wide auto-accept flag for processing a new disc
+    /// This should be called at the start of each new disc processing
+    /// </summary>
+    void ResetDiscAutoAccept();
 }
