@@ -9,6 +9,8 @@ public interface IMakeMkvService
     Task<bool> GetDiscInfoAsync(AkDriveInfo drive);
     List<AkTitle> FilterTitlesBySize(AkDriveInfo drive, double minSizeGB = 3.0, double maxSizeGB = 12.0);
     List<AkTitle> FilterTitlesBySizeForTvSeries(AkDriveInfo drive, double minSizeGB = 3.0);
+    List<AkTitle> FilterTitlesByChapters(AkDriveInfo drive, int minChapters = 1, int maxChapters = 999);
+    List<AkTitle> FilterTitlesBySizeAndChapters(AkDriveInfo drive, double minSizeGB = 3.0, double maxSizeGB = 12.0, int minChapters = 1, int maxChapters = 999);
     Task<bool> RipTitlesAsync(AkDriveInfo drive, List<AkTitle> titles, string outputPath, bool skipIfExists = true);
     Task<bool> RipDiscWithFilterAsync(AkDriveInfo drive, string outputPath, double minSizeGB = 3.0, double maxSizeGB = 12.0);
     Task<List<AkDriveInfo>> GetAvailableDrivesAsync();

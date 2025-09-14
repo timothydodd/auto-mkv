@@ -25,6 +25,13 @@ public interface ISeriesConfigurationService
     (double? minSize, double? maxSize) PromptForEpisodeSizeRange(string seriesTitle);
 
     /// <summary>
+    /// Prompts user for episode chapter filtering range for a series
+    /// </summary>
+    /// <param name="seriesTitle">The title of the TV series</param>
+    /// <returns>Tuple containing min and max episode chapter counts, or null for defaults</returns>
+    (int? minChapters, int? maxChapters) PromptForEpisodeChapterRange(string seriesTitle);
+
+    /// <summary>
     /// Prompts user for track sorting strategy for a series
     /// </summary>
     /// <param name="seriesTitle">The title of the TV series</param>

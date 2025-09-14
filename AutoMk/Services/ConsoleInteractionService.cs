@@ -18,13 +18,15 @@ public class ConsoleInteractionService
     private readonly IOmdbClient _omdbClient;
     private readonly ILogger<ConsoleInteractionService> _logger;
     private readonly IConsolePromptService _promptService;
+    private readonly ISeriesConfigurationService _seriesConfigurationService;
     private bool _continueWithoutPrompting = false;
 
-    public ConsoleInteractionService(IOmdbClient omdbClient, ILogger<ConsoleInteractionService> logger, IConsolePromptService promptService)
+    public ConsoleInteractionService(IOmdbClient omdbClient, ILogger<ConsoleInteractionService> logger, IConsolePromptService promptService, ISeriesConfigurationService seriesConfigurationService)
     {
         _omdbClient = ValidationHelper.ValidateNotNull(omdbClient);
         _logger = ValidationHelper.ValidateNotNull(logger);
         _promptService = ValidationHelper.ValidateNotNull(promptService);
+        _seriesConfigurationService = ValidationHelper.ValidateNotNull(seriesConfigurationService);
     }
 
     public async Task<OptimizedSearchResult?> InteractiveMediaSearchAsync(string originalTitle, string discName)
@@ -541,31 +543,12 @@ public class ConsoleInteractionService
 
     public (double? minSize, double? maxSize) PromptForEpisodeSizeRange(string seriesTitle)
     {
-        _promptService.DisplayHeader("NEW TV SERIES DETECTED - Episode Size Filter");
-        Console.WriteLine($"Series: {seriesTitle}");
-        Console.WriteLine();
-        Console.WriteLine("This is a new TV series. To improve episode filtering, you can specify");
-        Console.WriteLine("minimum and maximum file sizes for episodes in this series. This helps");
-        Console.WriteLine("skip extras, intros, and other unwanted files.");
-        Console.WriteLine();
+        return _seriesConfigurationService.PromptForEpisodeSizeRange(seriesTitle);
+    }
 
-        var result = _promptService.SelectPrompt<bool>(new SelectPromptOptions
-        {
-            Question = "Would you like to set custom episode size filtering?",
-            Choices = new List<PromptChoice>
-            {
-                new("custom", "Set custom episode size range (min and max in GB)", true),
-                new("default", "Use default filtering (current global settings)", false)
-            }
-        });
-
-        if (!result.Success || result.Cancelled || !result.Value)
-        {
-            _logger.LogInformation($"User chose to use default filtering for series: {seriesTitle}");
-            return (null, null);
-        }
-
-        return PromptForSizeRange();
+    public (int? minChapters, int? maxChapters) PromptForEpisodeChapterRange(string seriesTitle)
+    {
+        return _seriesConfigurationService.PromptForEpisodeChapterRange(seriesTitle);
     }
 
     private (double minSize, double maxSize) PromptForSizeRange()
@@ -609,246 +592,65 @@ public class ConsoleInteractionService
         return (minSize, maxSize);
     }
 
-    public TrackSortingStrategy PromptForTrackSortingStrategy(string seriesTitle)
+    private (int minChapters, int maxChapters) PromptForChapterRange()
     {
-        _promptService.DisplayHeader($"Track Sorting Strategy for TV Series: {seriesTitle}");
-        Console.WriteLine("For TV series, tracks need to be sorted to determine episode order.");
-        Console.WriteLine("Choose how you want tracks to be sorted:");
-        Console.WriteLine();
-        Console.WriteLine("Track Order is usually correct, but some discs may have episodes in wrong order.");
-        Console.WriteLine("MPLS File Name sorting can help when episodes are numbered correctly in the files.");
-        Console.WriteLine("User Confirmed allows you to verify/correct each episode assignment manually.");
-        Console.WriteLine();
-
-        var result = _promptService.SelectPrompt<TrackSortingStrategy>(new SelectPromptOptions
+        // Get minimum chapters
+        var minChaptersResult = _promptService.TextPrompt(new TextPromptOptions
         {
-            Question = "Choose track sorting method:",
-            Choices = new List<PromptChoice>
-            {
-                new("track_order", "By Track Order (default) - Use MakeMKV's track numbering (Title #0, #1, #2...)", TrackSortingStrategy.ByTrackOrder),
-                new("mpls_filename", "By MPLS File Name - Sort by source MPLS file names (00042.mpls, 00043.mpls...)", TrackSortingStrategy.ByMplsFileName),
-                new("user_confirmed", "User Confirmed - Sort by track order but confirm each episode with user", TrackSortingStrategy.UserConfirmed)
-            }
+            Question = "Enter minimum episode chapter count (e.g., 1, 5, 10):",
+            Required = true,
+            PromptText = "Min Chapters",
+            ValidationPattern = @"^\d+$",
+            ValidationMessage = "Please enter a valid positive integer"
         });
 
-        if (!result.Success || result.Cancelled)
+        if (!minChaptersResult.Success || !int.TryParse(minChaptersResult.Value, out var minChapters) || minChapters <= 0 || minChapters > 999)
         {
-            _logger.LogInformation("User cancelled track sorting selection, defaulting to ByTrackOrder for series: {SeriesTitle}", seriesTitle);
-            return TrackSortingStrategy.ByTrackOrder;
+            _logger.LogWarning("Invalid minimum chapter count entered, using default 1");
+            minChapters = 1;
         }
 
-        _logger.LogInformation("User selected {Strategy} sorting for series: {SeriesTitle}", result.Value, seriesTitle);
-        return result.Value;
+        Console.WriteLine($"Minimum episode chapters set to {minChapters}");
+
+        // Get maximum chapters
+        var maxChaptersResult = _promptService.TextPrompt(new TextPromptOptions
+        {
+            Question = $"Enter maximum episode chapter count (must be >= {minChapters}):",
+            Required = true,
+            PromptText = "Max Chapters",
+            ValidationPattern = @"^\d+$",
+            ValidationMessage = "Please enter a valid positive integer"
+        });
+
+        if (!maxChaptersResult.Success || !int.TryParse(maxChaptersResult.Value, out var maxChapters) || maxChapters < minChapters || maxChapters > 999)
+        {
+            _logger.LogWarning($"Invalid maximum chapter count entered, using {Math.Max(minChapters * 2, 50)}");
+            maxChapters = Math.Max(minChapters * 2, 50);
+        }
+
+        Console.WriteLine($"Maximum episode chapters set to {maxChapters}");
+        _logger.LogInformation($"User set episode chapter range: {minChapters} - {maxChapters}");
+        return (minChapters, maxChapters);
+    }
+
+    public TrackSortingStrategy PromptForTrackSortingStrategy(string seriesTitle)
+    {
+        return _seriesConfigurationService.PromptForTrackSortingStrategy(seriesTitle);
     }
 
     public (bool treatAsDouble, DoubleEpisodeHandling? savePreference) PromptForDoubleEpisodeHandling(
-        string seriesTitle, 
-        string trackName, 
-        double trackLengthSeconds, 
+        string seriesTitle,
+        string trackName,
+        double trackLengthSeconds,
         double minEpisodeLengthSeconds)
     {
-        double ratio = trackLengthSeconds / minEpisodeLengthSeconds;
-        
-        _promptService.DisplayHeader("POSSIBLE DOUBLE EPISODE DETECTED");
-        Console.WriteLine($"Series: {seriesTitle}");
-        Console.WriteLine($"Track: {trackName}");
-        Console.WriteLine($"Track Length: {trackLengthSeconds / 60:F1} minutes");
-        Console.WriteLine($"Minimum Episode Length: {minEpisodeLengthSeconds / 60:F1} minutes");
-        Console.WriteLine($"Length Ratio: {ratio:F2}x longer than shortest episode");
-        Console.WriteLine();
-        Console.WriteLine("This track appears to be significantly longer than the shortest episode.");
-        Console.WriteLine("It might contain two episodes combined into one file.");
-        Console.WriteLine();
-
-        var result = _promptService.SelectPrompt(new SelectPromptOptions
-        {
-            Question = "How should this be handled for episode numbering?",
-            Choices = new List<PromptChoice>
-            {
-                new("double_once", "Treat as TWO episodes (increment episode count by 2)"),
-                new("single_once", "Treat as ONE episode (normal increment)"),
-                new("double_always", "ALWAYS treat long episodes as DOUBLE for this series (save preference)"),
-                new("single_always", "NEVER treat long episodes as single for this series (save preference)")
-            }
-        });
-
-        if (!result.Success || result.Cancelled)
-        {
-            _logger.LogInformation($"User cancelled double episode choice for {trackName}, defaulting to single episode");
-            return (false, null);
-        }
-
-        switch (result.Value)
-        {
-            case "double_once":
-                _logger.LogInformation($"User chose to treat {trackName} as double episode");
-                return (true, null);
-                
-            case "single_once":
-                _logger.LogInformation($"User chose to treat {trackName} as single episode");
-                return (false, null);
-                
-            case "double_always":
-                _logger.LogInformation($"User chose to always treat long episodes as double for series: {seriesTitle}");
-                return (true, DoubleEpisodeHandling.AlwaysDouble);
-                
-            case "single_always":
-                _logger.LogInformation($"User chose to always treat long episodes as single for series: {seriesTitle}");
-                return (false, DoubleEpisodeHandling.AlwaysSingle);
-                
-            default:
-                _logger.LogWarning($"Unexpected choice value: {result.Value}, defaulting to single episode");
-                return (false, null);
-        }
+        return _seriesConfigurationService.PromptForDoubleEpisodeHandling(
+            seriesTitle, trackName, trackLengthSeconds, minEpisodeLengthSeconds);
     }
 
     public SeriesProfile PromptForCompleteSeriesProfile(string seriesTitle, string discName)
     {
-        Console.WriteLine();
-        _promptService.DisplayHeader("NEW TV SERIES CONFIGURATION");
-        Console.WriteLine($"Series: {seriesTitle}");
-        Console.WriteLine($"Disc: {discName}");
-        Console.WriteLine();
-        Console.WriteLine("This is a new TV series. Let's configure all settings upfront to minimize");
-        Console.WriteLine("interruptions during the ripping process.");
-        Console.WriteLine();
-
-        var profile = new SeriesProfile
-        {
-            SeriesTitle = seriesTitle
-        };
-
-        // 1. Episode Size Range
-        Console.WriteLine("STEP 1/6: Episode Size Filtering");
-        Console.WriteLine("---------------------------------");
-        var (minSize, maxSize) = PromptForEpisodeSizeRange(seriesTitle);
-        profile.MinEpisodeSizeGB = minSize;
-        profile.MaxEpisodeSizeGB = maxSize;
-        Console.WriteLine();
-
-        // 2. Track Sorting Strategy
-        Console.WriteLine("STEP 2/6: Track Sorting Method");
-        Console.WriteLine("-------------------------------");
-        profile.TrackSortingStrategy = PromptForTrackSortingStrategy(seriesTitle);
-        Console.WriteLine();
-
-        // 3. Double Episode Handling
-        Console.WriteLine("STEP 3/6: Double Episode Detection");
-        Console.WriteLine("-----------------------------------");
-        Console.WriteLine("Some discs combine two episodes into a single file.");
-        Console.WriteLine("How should these be handled?");
-        Console.WriteLine();
-        Console.WriteLine("1. Always ask me for each long episode (recommended)");
-        Console.WriteLine("2. Always treat as single episodes");
-        Console.WriteLine("3. Always treat long files as double episodes");
-        Console.WriteLine();
-
-        var doubleEpisodeResult = _promptService.SelectPrompt<DoubleEpisodeHandling>(new SelectPromptOptions
-        {
-            Question = "How should double episodes be handled?",
-            Choices = new List<PromptChoice>
-            {
-                new("ask", "Always ask me for each long episode (recommended)", DoubleEpisodeHandling.AlwaysAsk),
-                new("single", "Always treat as single episodes", DoubleEpisodeHandling.AlwaysSingle),
-                new("double", "Always treat long files as double episodes", DoubleEpisodeHandling.AlwaysDouble)
-            }
-        });
-
-        if (doubleEpisodeResult.Success && !doubleEpisodeResult.Cancelled)
-        {
-            profile.DoubleEpisodeHandling = doubleEpisodeResult.Value;
-            _logger.LogInformation($"Set double episode handling to {doubleEpisodeResult.Value} for {seriesTitle}");
-        }
-        else
-        {
-            profile.DoubleEpisodeHandling = DoubleEpisodeHandling.AlwaysAsk;
-            _logger.LogInformation($"User cancelled double episode choice, defaulting to Always Ask for {seriesTitle}");
-        }
-        Console.WriteLine();
-
-        // 4. Starting Season/Episode (if not clear from disc name)
-        Console.WriteLine("STEP 4/6: Starting Position");
-        Console.WriteLine("----------------------------");
-        if (!discName.Contains("S", StringComparison.OrdinalIgnoreCase) || 
-            !discName.Contains("D", StringComparison.OrdinalIgnoreCase))
-        {
-            var (season, episode) = PromptForStartingSeasonAndEpisode(seriesTitle, discName);
-            profile.DefaultStartingSeason = season;
-            profile.DefaultStartingEpisode = episode;
-        }
-        else
-        {
-            Console.WriteLine("Season/Episode information will be extracted from disc name.");
-        }
-        Console.WriteLine();
-
-        // 5. Auto-increment mode
-        Console.WriteLine("STEP 5/6: Multi-Disc Handling");
-        Console.WriteLine("------------------------------");
-        Console.WriteLine("When processing multiple discs with similar names, should episode");
-        Console.WriteLine("numbers automatically continue from where the previous disc ended?");
-        Console.WriteLine();
-        Console.WriteLine("1. Yes - Enable auto-increment mode");
-        Console.WriteLine("2. No - Always check disc processing history");
-        Console.WriteLine();
-
-        var autoIncrementResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
-        {
-            Question = "Enable auto-increment mode for multi-disc handling?",
-            Choices = new List<PromptChoice>
-            {
-                new("yes", "Yes - Enable auto-increment mode", true),
-                new("no", "No - Always check disc processing history", false)
-            }
-        });
-
-        if (autoIncrementResult.Success && !autoIncrementResult.Cancelled)
-        {
-            profile.UseAutoIncrement = autoIncrementResult.Value;
-            _logger.LogInformation($"{(autoIncrementResult.Value ? "Enabled" : "Disabled")} auto-increment mode for {seriesTitle}");
-        }
-        else
-        {
-            profile.UseAutoIncrement = false;
-            _logger.LogInformation($"User cancelled auto-increment choice, defaulting to disabled for {seriesTitle}");
-        }
-        Console.WriteLine();
-
-        // 6. Confirmation preference
-        Console.WriteLine("STEP 6/6: Pre-Rip Confirmation");
-        Console.WriteLine("-------------------------------");
-        Console.WriteLine("Would you like to review rip settings before each disc, or proceed");
-        Console.WriteLine("automatically with the configured settings?");
-        Console.WriteLine();
-        Console.WriteLine("1. Always show pre-rip confirmation (recommended)");
-        Console.WriteLine("2. Skip confirmation and proceed automatically");
-        Console.WriteLine();
-
-        var confirmationPreferenceResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
-        {
-            Question = "Show pre-rip confirmation for this series?",
-            Choices = new List<PromptChoice>
-            {
-                new("show", "Always show pre-rip confirmation (recommended)", false),
-                new("skip", "Skip confirmation and proceed automatically", true)
-            }
-        });
-
-        if (confirmationPreferenceResult.Success && !confirmationPreferenceResult.Cancelled)
-        {
-            profile.AlwaysSkipConfirmation = confirmationPreferenceResult.Value;
-            _logger.LogInformation($"{(confirmationPreferenceResult.Value ? "Will skip" : "Will show")} pre-rip confirmation for {seriesTitle}");
-        }
-        else
-        {
-            profile.AlwaysSkipConfirmation = false;
-            _logger.LogInformation($"User cancelled confirmation preference choice, defaulting to show confirmation for {seriesTitle}");
-        }
-
-        Console.WriteLine();
-        _promptService.DisplayHeader($"Series configuration complete! These settings will be used for all future discs from {seriesTitle}.");
-
-        return profile;
+        return _seriesConfigurationService.PromptForCompleteSeriesProfile(seriesTitle, discName);
     }
 
     public SeriesProfile PromptForModifySeriesProfile(SeriesProfile existingProfile, string discName)
@@ -1325,6 +1127,7 @@ public class ConsoleInteractionService
         if (confirmation.MediaType.Equals("TV Series", StringComparison.OrdinalIgnoreCase))
         {
             Console.WriteLine($"Episode filter: {confirmation.MinSizeGB:F1} - {confirmation.MaxSizeGB:F1} GB");
+            Console.WriteLine($"Chapter filter: {confirmation.MinChapters} - {confirmation.MaxChapters} chapters");
             Console.WriteLine($"Track sorting: {confirmation.SortingMethod}");
             Console.WriteLine($"Starting at: {confirmation.StartingPosition}");
             Console.WriteLine($"Double episodes: {confirmation.DoubleEpisodeHandling}");
@@ -1332,13 +1135,14 @@ public class ConsoleInteractionService
         else
         {
             Console.WriteLine($"Selected track size: {confirmation.MinSizeGB:F1} GB");
+            Console.WriteLine($"Chapter filter: {confirmation.MinChapters} - {confirmation.MaxChapters} chapters");
         }
         
         Console.WriteLine();
         Console.WriteLine("Selected tracks:");
         foreach (var track in confirmation.SelectedTracks.Take(5))
         {
-            Console.WriteLine($"  - {track.Name} ({track.SizeInGB:F2} GB, {track.LengthInSeconds / 60.0:F1} min)");
+            Console.WriteLine($"  - {track.Name} ({track.SizeInGB:F2} GB, {track.LengthInSeconds / 60.0:F1} min, {track.ChapterCount} chapters)");
         }
         if (confirmation.SelectedTracks.Count > 5)
         {

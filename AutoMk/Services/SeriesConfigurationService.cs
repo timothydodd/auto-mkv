@@ -95,6 +95,35 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         return PromptForSizeRange();
     }
 
+    public (int? minChapters, int? maxChapters) PromptForEpisodeChapterRange(string seriesTitle)
+    {
+        _promptService.DisplayHeader("NEW TV SERIES DETECTED - Episode Chapter Filter");
+        Console.WriteLine($"Series: {seriesTitle}");
+        Console.WriteLine();
+        Console.WriteLine("This is a new TV series. To improve episode filtering, you can specify");
+        Console.WriteLine("minimum and maximum chapter counts for episodes in this series. This helps");
+        Console.WriteLine("skip extras, intros, and other unwanted files based on chapter structure.");
+        Console.WriteLine();
+
+        var result = _promptService.SelectPrompt<bool>(new SelectPromptOptions
+        {
+            Question = "Would you like to set custom episode chapter filtering?",
+            Choices = new List<PromptChoice>
+            {
+                new("custom", "Set custom episode chapter range (min and max chapters)", true),
+                new("default", "Use default filtering (current global settings)", false)
+            }
+        });
+
+        if (!result.Success || result.Cancelled || !result.Value)
+        {
+            _logger.LogInformation($"User chose to use default chapter filtering for series: {seriesTitle}");
+            return (null, null);
+        }
+
+        return PromptForChapterRange();
+    }
+
     public TrackSortingStrategy PromptForTrackSortingStrategy(string seriesTitle)
     {
         _promptService.DisplayHeader($"Track Sorting Strategy for TV Series: {seriesTitle}");
@@ -204,21 +233,29 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         };
 
         // 1. Episode Size Range
-        Console.WriteLine("STEP 1/5: Episode Size Filtering");
+        Console.WriteLine("STEP 1/6: Episode Size Filtering");
         Console.WriteLine("---------------------------------");
         var (minSize, maxSize) = PromptForEpisodeSizeRange(seriesTitle);
         profile.MinEpisodeSizeGB = minSize;
         profile.MaxEpisodeSizeGB = maxSize;
         Console.WriteLine();
 
-        // 2. Track Sorting Strategy
-        Console.WriteLine("STEP 2/5: Track Sorting Method");
+        // 2. Episode Chapter Range
+        Console.WriteLine("STEP 2/6: Episode Chapter Filtering");
+        Console.WriteLine("------------------------------------");
+        var (minChapters, maxChapters) = PromptForEpisodeChapterRange(seriesTitle);
+        profile.MinEpisodeChapters = minChapters;
+        profile.MaxEpisodeChapters = maxChapters;
+        Console.WriteLine();
+
+        // 3. Track Sorting Strategy
+        Console.WriteLine("STEP 3/6: Track Sorting Method");
         Console.WriteLine("-------------------------------");
         profile.TrackSortingStrategy = PromptForTrackSortingStrategy(seriesTitle);
         Console.WriteLine();
 
-        // 3. Double Episode Handling
-        Console.WriteLine("STEP 3/5: Double Episode Detection");
+        // 4. Double Episode Handling
+        Console.WriteLine("STEP 4/6: Double Episode Detection");
         Console.WriteLine("-----------------------------------");
         Console.WriteLine("Some discs combine two episodes into a single file.");
         Console.WriteLine("How should these be handled?");
@@ -251,8 +288,8 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         }
         Console.WriteLine();
 
-        // 4. Starting Season/Episode (if not clear from disc name)
-        Console.WriteLine("STEP 4/5: Starting Position");
+        // 5. Starting Season/Episode (if not clear from disc name)
+        Console.WriteLine("STEP 5/6: Starting Position");
         Console.WriteLine("----------------------------");
         if (!discName.Contains("S", StringComparison.OrdinalIgnoreCase) || 
             !discName.Contains("D", StringComparison.OrdinalIgnoreCase))
@@ -267,8 +304,8 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         }
         Console.WriteLine();
 
-        // 5. Auto-increment mode
-        Console.WriteLine("STEP 5/5: Multi-Disc Handling");
+        // 6. Auto-increment mode
+        Console.WriteLine("STEP 6/6: Multi-Disc Handling");
         Console.WriteLine("------------------------------");
         Console.WriteLine("When processing multiple discs with similar names, should episode");
         Console.WriteLine("numbers automatically continue from where the previous disc ended?");
@@ -839,5 +876,48 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         Console.WriteLine($"Maximum episode size set to {maxSize} GB");
         _logger.LogInformation($"User set episode size range: {minSize} - {maxSize} GB");
         return (minSize, maxSize);
+    }
+
+    private (int minChapters, int maxChapters) PromptForChapterRange()
+    {
+        int minChapters, maxChapters;
+
+        // Get minimum chapters
+        var minChaptersResult = _promptService.TextPrompt(new TextPromptOptions
+        {
+            Question = "Enter minimum episode chapter count (e.g., 1, 5, 10):",
+            Required = true,
+            PromptText = "Min Chapters",
+            ValidationPattern = @"^\d+$",
+            ValidationMessage = "Please enter a valid positive integer"
+        });
+
+        if (!minChaptersResult.Success || !int.TryParse(minChaptersResult.Value, out minChapters) || minChapters <= 0 || minChapters > 999)
+        {
+            _logger.LogWarning("Invalid minimum chapter count entered, using default 1");
+            minChapters = 1;
+        }
+
+        Console.WriteLine($"Minimum episode chapters set to {minChapters}");
+
+        // Get maximum chapters
+        var maxChaptersResult = _promptService.TextPrompt(new TextPromptOptions
+        {
+            Question = $"Enter maximum episode chapter count (must be >= {minChapters}):",
+            Required = true,
+            PromptText = "Max Chapters",
+            ValidationPattern = @"^\d+$",
+            ValidationMessage = "Please enter a valid positive integer"
+        });
+
+        if (!maxChaptersResult.Success || !int.TryParse(maxChaptersResult.Value, out maxChapters) || maxChapters < minChapters || maxChapters > 999)
+        {
+            _logger.LogWarning($"Invalid maximum chapter count entered, using {Math.Max(minChapters * 2, 50)}");
+            maxChapters = Math.Max(minChapters * 2, 50);
+        }
+
+        Console.WriteLine($"Maximum episode chapters set to {maxChapters}");
+        _logger.LogInformation($"User set episode chapter range: {minChapters} - {maxChapters}");
+        return (minChapters, maxChapters);
     }
 }

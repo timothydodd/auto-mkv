@@ -47,7 +47,13 @@ public class SeriesState
     
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public double? MaxEpisodeSizeGB { get; set; } = null;
-    
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? MinEpisodeChapters { get; set; } = null;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? MaxEpisodeChapters { get; set; } = null;
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public TrackSortingStrategy? TrackSortingStrategy { get; set; } = null;
     
@@ -149,7 +155,7 @@ public class PreIdentifiedMedia
     public string IdentificationSource { get; set; } = string.Empty; // "manual", "automatic", "interactive"
 }
 
-public class SeriesProfile : ISizeConfigurable
+public class SeriesProfile : ISizeConfigurable, IChapterConfigurable
 {
     public string SeriesTitle { get; set; } = string.Empty;
     
@@ -158,7 +164,13 @@ public class SeriesProfile : ISizeConfigurable
     
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public double? MaxEpisodeSizeGB { get; set; }
-    
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? MinEpisodeChapters { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? MaxEpisodeChapters { get; set; }
+
     public TrackSortingStrategy TrackSortingStrategy { get; set; } = TrackSortingStrategy.ByTrackOrder;
     public DoubleEpisodeHandling DoubleEpisodeHandling { get; set; } = DoubleEpisodeHandling.AlwaysAsk;
     
@@ -175,27 +187,44 @@ public class SeriesProfile : ISizeConfigurable
     
     // ISizeConfigurable implementation - maps to episode-specific properties
     [JsonIgnore]
-    public double MinSizeGB 
-    { 
-        get => MinEpisodeSizeGB ?? 0.0; 
-        set => MinEpisodeSizeGB = value; 
+    public double MinSizeGB
+    {
+        get => MinEpisodeSizeGB ?? 0.0;
+        set => MinEpisodeSizeGB = value;
     }
-    
+
     [JsonIgnore]
-    public double MaxSizeGB 
-    { 
-        get => MaxEpisodeSizeGB ?? 50.0; 
-        set => MaxEpisodeSizeGB = value; 
+    public double MaxSizeGB
+    {
+        get => MaxEpisodeSizeGB ?? 50.0;
+        set => MaxEpisodeSizeGB = value;
+    }
+
+    // IChapterConfigurable implementation - maps to episode-specific properties
+    [JsonIgnore]
+    public int MinChapters
+    {
+        get => MinEpisodeChapters ?? 1;
+        set => MinEpisodeChapters = value;
+    }
+
+    [JsonIgnore]
+    public int MaxChapters
+    {
+        get => MaxEpisodeChapters ?? 999;
+        set => MaxEpisodeChapters = value;
     }
 }
 
-public class RipConfirmation : ISizeConfigurable
+public class RipConfirmation : ISizeConfigurable, IChapterConfigurable
 {
     public string MediaTitle { get; set; } = string.Empty;
     public string MediaType { get; set; } = string.Empty;
     public int TracksToRip { get; set; }
     public double MinSizeGB { get; set; }
     public double MaxSizeGB { get; set; }
+    public int MinChapters { get; set; }
+    public int MaxChapters { get; set; }
     public string SortingMethod { get; set; } = string.Empty;
     public string StartingPosition { get; set; } = string.Empty;
     public string DoubleEpisodeHandling { get; set; } = string.Empty;

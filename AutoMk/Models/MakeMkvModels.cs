@@ -13,6 +13,7 @@ public class AkTitle
     public double SizeInGB { get; set; }
     public required string Name { get; set; }
     public string? SourceFileName { get; set; }
+    public int ChapterCount { get; set; }
 }
 
 public class AkDriveInfo

@@ -4,7 +4,7 @@ using AutoMk.Interfaces;
 
 namespace AutoMk.Models;
 
-public class RipSettings : ISizeConfigurable
+public class RipSettings : ISizeConfigurable, IChapterConfigurable
 {
     public bool Flat { get; set; }
     public required string MakeMKVPath { get; set; }
@@ -15,6 +15,9 @@ public class RipSettings : ISizeConfigurable
     public bool FilterBySize { get; set; } = true;
     public double MinSizeGB { get; set; } = 3.0;
     public double MaxSizeGB { get; set; } = 12.0;
+    public bool FilterByChapters { get; set; } = false;
+    public int MinChapters { get; set; } = 1;
+    public int MaxChapters { get; set; } = 999;
     public bool EnableMediaIdentification { get; set; } = true;
     public string MediaStateDirectory { get; set; } = "state";
     public bool PreferPlexNaming { get; set; } = true;

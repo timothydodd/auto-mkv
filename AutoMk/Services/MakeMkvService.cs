@@ -161,6 +161,67 @@ public class MakeMkvService : IMakeMkvService
         return filteredTitles;
     }
 
+    public List<AkTitle> FilterTitlesByChapters(AkDriveInfo drive, int minChapters = 1, int maxChapters = 999)
+    {
+        var filteredTitles = new List<AkTitle>();
+
+        foreach (var title in drive.Titles.Values)
+        {
+            if (title.ChapterCount >= minChapters && title.ChapterCount <= maxChapters)
+            {
+                filteredTitles.Add(title);
+                _logger.LogInformation("Title {TitleId}: {TitleName} ({ChapterCount} chapters) - Selected",
+                    title.Id, title.Name, title.ChapterCount);
+            }
+            else
+            {
+                _logger.LogDebug("Title {TitleId}: {TitleName} ({ChapterCount} chapters) - Filtered out (not in range {MinChapters}-{MaxChapters})",
+                    title.Id, title.Name, title.ChapterCount, minChapters, maxChapters);
+            }
+        }
+
+        _logger.LogInformation("Filtered {FilteredCount} titles in chapter range {MinChapters}-{MaxChapters} from {TotalCount} total titles",
+            filteredTitles.Count, minChapters, maxChapters, drive.Titles.Count);
+
+        return filteredTitles;
+    }
+
+    public List<AkTitle> FilterTitlesBySizeAndChapters(AkDriveInfo drive, double minSizeGB = 3.0, double maxSizeGB = 12.0, int minChapters = 1, int maxChapters = 999)
+    {
+        var filteredTitles = new List<AkTitle>();
+
+        foreach (var title in drive.Titles.Values)
+        {
+            bool sizeMatches = title.SizeInGB > 0 && title.SizeInGB >= minSizeGB && title.SizeInGB <= maxSizeGB;
+            bool chaptersMatch = title.ChapterCount >= minChapters && title.ChapterCount <= maxChapters;
+
+            if (sizeMatches && chaptersMatch)
+            {
+                filteredTitles.Add(title);
+                _logger.LogInformation("Title {TitleId}: {TitleName} ({Size:F2} GB, {ChapterCount} chapters) - Selected",
+                    title.Id, title.Name, title.SizeInGB, title.ChapterCount);
+            }
+            else
+            {
+                string reason = "";
+                if (!sizeMatches) reason += $"size {title.SizeInGB:F2} GB not in range {minSizeGB}-{maxSizeGB} GB";
+                if (!chaptersMatch)
+                {
+                    if (reason.Length > 0) reason += ", ";
+                    reason += $"chapters {title.ChapterCount} not in range {minChapters}-{maxChapters}";
+                }
+
+                _logger.LogDebug("Title {TitleId}: {TitleName} - Filtered out ({Reason})",
+                    title.Id, title.Name, reason);
+            }
+        }
+
+        _logger.LogInformation("Filtered {FilteredCount} titles by size ({MinSize}-{MaxSize} GB) and chapters ({MinChapters}-{MaxChapters}) from {TotalCount} total titles",
+            filteredTitles.Count, minSizeGB, maxSizeGB, minChapters, maxChapters, drive.Titles.Count);
+
+        return filteredTitles;
+    }
+
     public async Task<bool> RipTitlesAsync(AkDriveInfo drive, List<AkTitle> titles, string outputPath, bool skipIfExists = true)
     {
         if (titles.Count == 0)

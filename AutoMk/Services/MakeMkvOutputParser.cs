@@ -58,6 +58,12 @@ public class MakeMkvOutputParser
 
             switch (propertyId)
             {
+                case "8":  // Chapter count
+                    if (int.TryParse(value.Trim('"', ' '), out int chapterCount))
+                    {
+                        title.ChapterCount = chapterCount;
+                    }
+                    break;
                 case "9":  // Duration
                     title.Length = value;
                     var sections = value.Trim('"', ' ').Split(":");

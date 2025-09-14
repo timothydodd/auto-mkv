@@ -356,7 +356,11 @@ namespace AutoMk
             // Use a mock console interaction service for the profile creation
             var mockLogger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<ConsoleInteractionService>();
             var mockPromptService = new ConsolePromptService();
-            var consoleService = new ConsoleInteractionService(null!, mockLogger, mockPromptService);
+            var mockSeriesLogger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<SeriesConfigurationService>();
+            var mockPatternLogger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<PatternLearningService>();
+            var mockPatternService = new PatternLearningService(null!, mockPatternLogger);
+            var mockSeriesService = new SeriesConfigurationService(mockSeriesLogger, mockPromptService, mockPatternService);
+            var consoleService = new ConsoleInteractionService(null!, mockLogger, mockPromptService, mockSeriesService);
 
             var profile = consoleService.PromptForCompleteSeriesProfile(title, "Manual Configuration");
 
@@ -396,7 +400,11 @@ namespace AutoMk
                     // Re-run the profile creation process to update settings
                     var mockLogger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<ConsoleInteractionService>();
                     var mockPromptService = new ConsolePromptService();
-                    var consoleService = new ConsoleInteractionService(null!, mockLogger, mockPromptService);
+                    var mockSeriesLogger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<SeriesConfigurationService>();
+                    var mockPatternLogger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<PatternLearningService>();
+                    var mockPatternService = new PatternLearningService(null!, mockPatternLogger);
+                    var mockSeriesService = new SeriesConfigurationService(mockSeriesLogger, mockPromptService, mockPatternService);
+                    var consoleService = new ConsoleInteractionService(null!, mockLogger, mockPromptService, mockSeriesService);
 
                     var updatedProfile = consoleService.PromptForCompleteSeriesProfile(
                         profile.SeriesTitle,
