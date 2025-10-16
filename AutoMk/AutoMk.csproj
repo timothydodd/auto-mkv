@@ -28,23 +28,23 @@
 
 
 	<ItemGroup>
-        <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.8" />
+        <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.10" />
 		<PackageReference Include="Karambolo.Extensions.Logging.File" Version="3.6.3" />
-		<PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.8" />
-		<PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.8" />
-		<PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="9.0.8" />
-		<PackageReference Include="Microsoft.Extensions.Configuration.FileExtensions" Version="9.0.8" />
-		<PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.8" />
-		<PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="9.0.8" />
-		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.8" />
+		<PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.10" />
+		<PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.10" />
+		<PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="9.0.10" />
+		<PackageReference Include="Microsoft.Extensions.Configuration.FileExtensions" Version="9.0.10" />
+		<PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.10" />
+		<PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="9.0.10" />
+		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.10" />
 		<DotNetCliToolReference Include="Microsoft.Extensions.SecretManager.Tools" Version="2.0.0" />
-		<PackageReference Include="Microsoft.Extensions.Http" Version="9.0.8" />
-		<PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.8" />
-		<PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.8" />
+		<PackageReference Include="Microsoft.Extensions.Http" Version="9.0.10" />
+		<PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.10" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.10" />
 		<PackageReference Include="ShellProgressBar" Version="5.2.0" />
-		<PackageReference Include="System.Management" Version="9.0.0" />
+		<PackageReference Include="System.Management" Version="9.0.10" />
 		<PackageReference Include="System.Private.Uri" Version="4.3.2" />
-		<PackageReference Include="System.Text.Json" Version="9.0.8" />
+		<PackageReference Include="System.Text.Json" Version="9.0.10" />
 
 	</ItemGroup>
 
