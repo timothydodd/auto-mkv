@@ -58,13 +58,13 @@ public class FileTransferClient : IFileTransferClient
         _logger.LogInformation("Checking if file transfer service is available at: {ServiceUrl}", _settings.TargetServiceUrl);
         using var healthCheckCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         healthCheckCts.CancelAfter(TimeSpan.FromSeconds(10)); // 10 second timeout for health check
-        
+
         if (!await IsServiceAvailableAsync(healthCheckCts.Token))
         {
             _logger.LogWarning("Target service is not available (health check failed or timed out), skipping file transfer for: {FilePath}", filePath);
             return false;
         }
-        
+
         _logger.LogInformation("File transfer service is available, proceeding with transfer");
 
         await _transferSemaphore.WaitAsync(cancellationToken);
@@ -84,10 +84,14 @@ public class FileTransferClient : IFileTransferClient
                 RelativeFilePath = relativePath
             };
 
-            using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read,
-                bufferSize: _settings.BufferSizeBytes, useAsync: true);
+            bool success;
+            // Wrap the FileStream in its own scope so it gets disposed before we try to move the file
+            {
+                using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                    bufferSize: _settings.BufferSizeBytes, useAsync: true);
 
-            var success = await TransferFileAsync(fileStream, transferRequest, fileName, cancellationToken);
+                success = await TransferFileAsync(fileStream, transferRequest, fileName, cancellationToken);
+            } // FileStream is disposed here, releasing the file lock
 
             if (success)
             {
@@ -118,23 +122,39 @@ public class FileTransferClient : IFileTransferClient
                     var movedFolder = Path.Combine(outputDirectory, "_moved");
                     var movedFilePath = Path.Combine(movedFolder, relativePath);
                     var movedFileDirectory = Path.GetDirectoryName(movedFilePath);
-                    
-                    try
+
+                    bool moveSucceeded = false;
+                    int attempts = 0;
+                    while (attempts < 10)
                     {
-                        if (!string.IsNullOrEmpty(movedFileDirectory))
+                        try
                         {
-                            FileSystemHelper.EnsureDirectoryExists(movedFileDirectory);
+                            if (!string.IsNullOrEmpty(movedFileDirectory))
+                            {
+                                FileSystemHelper.EnsureDirectoryExists(movedFileDirectory);
+                            }
+                            File.Move(filePath, movedFilePath);
+                            _logger.LogInformation($"Moved file to: {movedFilePath}");
+
+                            // Clean up empty directories after moving the file
+                            var sourceDirectory = Path.GetDirectoryName(filePath);
+                            CleanupEmptyDirectories(sourceDirectory, outputDirectory);
+                            moveSucceeded = true;
+                            break;
                         }
-                        File.Move(filePath, movedFilePath);
-                        _logger.LogInformation($"Moved file to: {movedFilePath}");
-                        
-                        // Clean up empty directories after moving the file
-                        var sourceDirectory = Path.GetDirectoryName(filePath);
-                        CleanupEmptyDirectories(sourceDirectory, outputDirectory);
+                        catch (Exception ex)
+                        {
+                            attempts++;
+                            _logger.LogError(ex, $"Failed to move file to: {movedFilePath} (attempt {attempts}/10)");
+                        }
+                        Thread.Sleep(300);
                     }
-                    catch (Exception ex)
+
+                    // If the move failed after all retries, mark the overall operation as failed
+                    if (!moveSucceeded)
                     {
-                        _logger.LogWarning(ex, $"Failed to move file to: {movedFilePath}");
+                        _logger.LogError($"Failed to move file to _moved folder after {attempts} attempts: {filePath}");
+                        success = false;
                     }
                 }
             }
@@ -169,10 +189,10 @@ public class FileTransferClient : IFileTransferClient
         {
             var healthUrl = $"{_settings.TargetServiceUrl}/health";
             _logger.LogDebug("Making health check request to: {HealthUrl}", healthUrl);
-            
+
             var response = await _httpClient.GetAsync(healthUrl, cancellationToken);
             var isAvailable = response.IsSuccessStatusCode;
-            
+
             if (isAvailable)
             {
                 _logger.LogDebug("Service health check successful - Status: {StatusCode}", response.StatusCode);
@@ -181,7 +201,7 @@ public class FileTransferClient : IFileTransferClient
             {
                 _logger.LogWarning("Service health check failed - Status: {StatusCode}", response.StatusCode);
             }
-            
+
             return isAvailable;
         }
         catch (OperationCanceledException)
@@ -254,7 +274,7 @@ public class FileTransferClient : IFileTransferClient
             // Don't clean up the root directory itself or the _moved directory
             var fullDirPath = Path.GetFullPath(directory);
             var fullRootPath = Path.GetFullPath(rootDirectory);
-            
+
             if (fullDirPath.Equals(fullRootPath, StringComparison.OrdinalIgnoreCase) ||
                 fullDirPath.Contains("_moved", StringComparison.OrdinalIgnoreCase))
             {
@@ -262,13 +282,13 @@ public class FileTransferClient : IFileTransferClient
             }
 
             // Check if directory is empty (no files or subdirectories)
-            if (Directory.Exists(directory) && 
-                !Directory.GetFiles(directory).Any() && 
+            if (Directory.Exists(directory) &&
+                !Directory.GetFiles(directory).Any() &&
                 !Directory.GetDirectories(directory).Any())
             {
                 Directory.Delete(directory);
                 _logger.LogDebug($"Deleted empty directory: {directory}");
-                
+
                 // Recursively check parent directory
                 var parentDirectory = Path.GetDirectoryName(directory);
                 if (!string.IsNullOrEmpty(parentDirectory))
@@ -312,7 +332,7 @@ public class ProgressTrackingStreamContent : HttpContent
         _stopwatch.Start();
         var buffer = new byte[64 * 1024]; // 64KB buffer
         int bytesRead;
-        
+
         while ((bytesRead = await _stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
         {
             await stream.WriteAsync(buffer, 0, bytesRead);
