@@ -1,0 +1,105 @@
+{
+  "discs": [
+    {
+      "name": "Breaking_Bad_S1_D1_BD",
+      "titles": [
+        {
+          "id": "0",
+          "name": "title_t00.mkv",
+          "duration": "00:48:15",
+          "sizeGB": 4.2,
+          "chapterCount": 6,
+          "sourceFileName": "00800.mpls",
+          "ripDurationSeconds": 15
+        },
+        {
+          "id": "1",
+          "name": "title_t01.mkv",
+          "duration": "00:47:52",
+          "sizeGB": 4.1,
+          "chapterCount": 6,
+          "sourceFileName": "00801.mpls",
+          "ripDurationSeconds": 15
+        },
+        {
+          "id": "2",
+          "name": "title_t02.mkv",
+          "duration": "00:49:03",
+          "sizeGB": 4.3,
+          "chapterCount": 6,
+          "sourceFileName": "00802.mpls",
+          "ripDurationSeconds": 15
+        },
+        {
+          "id": "3",
+          "name": "title_t03.mkv",
+          "duration": "01:36:24",
+          "sizeGB": 8.5,
+          "chapterCount": 12,
+          "sourceFileName": "00803.mpls",
+          "ripDurationSeconds": 15
+        }
+      ]
+    },
+    {
+      "name": "Breaking_Bad_S1_D2_BD",
+      "titles": [
+        {
+          "id": "0",
+          "name": "title_t00.mkv",
+          "duration": "00:46:38",
+          "sizeGB": 4.0,
+          "chapterCount": 6,
+          "sourceFileName": "00800.mpls",
+          "ripDurationSeconds": 15
+        },
+        {
+          "id": "1",
+          "name": "title_t01.mkv",
+          "duration": "00:48:22",
+          "sizeGB": 4.2,
+          "chapterCount": 6,
+          "sourceFileName": "00801.mpls",
+          "ripDurationSeconds": 15
+        },
+        {
+          "id": "2",
+          "name": "title_t02.mkv",
+          "duration": "00:47:15",
+          "sizeGB": 4.1,
+          "chapterCount": 6,
+          "sourceFileName": "00802.mpls",
+          "ripDurationSeconds": 15
+        },
+        {
+          "id": "3",
+          "name": "title_t03.mkv",
+          "duration": "00:48:45",
+          "sizeGB": 4.3,
+          "chapterCount": 6,
+          "sourceFileName": "00803.mpls",
+          "ripDurationSeconds": 15
+        }
+      ]
+    },
+    {
+      "name": "Breaking_Bad_S1_D3_BD",
+      "titles": [
+        {
+          "id": "0",
+          "name": "title_t00.mkv",
+          "duration": "00:49:30",
+          "sizeGB": 4.4,
+          "chapterCount": 6,
+          "sourceFileName": "00800.mpls",
+          "ripDurationSeconds": 15
+        }
+      ]
+    }
+  ],
+  "drive": {
+    "id": "0",
+    "driveName": "BD-RE ASUS BC-12D2HT",
+    "driveLetter": "E:"
+  }
+}

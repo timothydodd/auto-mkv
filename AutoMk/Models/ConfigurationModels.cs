@@ -47,7 +47,7 @@ public class FileTransferSettings
 {
     public bool Enabled { get; set; } = false;
     public string TargetServiceUrl { get; set; } = "http://localhost:5000";
-    public int MaxConcurrentTransfers { get; set; } = 2;
+    public int MaxConcurrentTransfers { get; set; } = 1;
     public int TransferTimeoutMinutes { get; set; } = 240;
     public int BufferSizeBytes { get; set; } = 64 * 1024; // 64KB
     public bool DeleteAfterTransfer { get; set; } = false;

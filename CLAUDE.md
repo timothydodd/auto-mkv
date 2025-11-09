@@ -27,7 +27,53 @@ $HOME/.dotnet/dotnet publish -c Release -r win-x64
 
 # Run tests (when available)
 $HOME/.dotnet/dotnet test
+
+# Build and run the MakeMKV emulator (for testing)
+cd MakeMkvEmulator
+$HOME/.dotnet/dotnet build
+cp examples/quick-test-example.json bin/Debug/net9.0/emulator-config.json
+$HOME/.dotnet/dotnet run -- -r --progress=-same info
 ```
+
+## MakeMKV Emulator
+
+The project includes a MakeMKV emulator (`MakeMkvEmulator/`) for testing without physical discs or a MakeMKV license.
+
+**Purpose:**
+- Enables development and testing without physical optical drives
+- Allows configurable disc sequences with custom tracks and properties
+- Simulates realistic ripping progress and timing
+- Perfect for CI/CD pipelines and rapid development
+
+**Key Features:**
+- Mimics `makemkvcon64` command-line interface exactly
+- Configurable via JSON (disc name, track sizes, durations, rip times)
+- Stateful - remembers current disc position across runs
+- Auto-advances through disc sequence after ripping completes
+- Creates dummy output files matching configured specifications
+
+**Configuration:**
+- Main config: `emulator-config.json` (defines disc sequence)
+- State file: `emulator-state.json` (tracks current disc position)
+- Three example configs provided:
+  - `tv-series-example.json`: Multi-disc TV series (Breaking Bad S1)
+  - `movie-example.json`: Movies with bonus features
+  - `quick-test-example.json`: Fast testing (3-5s rip times)
+
+**Usage:**
+1. Build: `cd MakeMkvEmulator && dotnet build`
+2. Copy config: `cp examples/quick-test-example.json bin/Debug/net9.0/emulator-config.json`
+3. Point AutoMk to emulator: Set `RipSettings.MakeMKVPath` to emulator binary
+4. Run AutoMk normally - it will use the emulated discs
+
+**Output Format:**
+Matches real MakeMKV output exactly:
+- `DRV:` lines for drive information
+- `TINFO:` lines for title properties
+- `PRGV:`/`PRGC:` lines for progress updates
+- `MSG:` lines for status messages
+
+See `MakeMkvEmulator/README.md` for detailed documentation.
 
 ## Architecture Overview
 

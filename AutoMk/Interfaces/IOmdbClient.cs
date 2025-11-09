@@ -8,6 +8,7 @@ public interface IOmdbClient
 {
     Task<OmdbMovieResponse?> GetMovie(string title, int? year);
     Task<OmdbSeriesResponse?> GetSeries(string title);
+    Task<OmdbMovieResponse?> GetMediaByImdbId(string imdbId);
 
     Task<OmdbSeasonResponse?> GetSeasonInfo(string seriesName, int season);
     Task<OmdbSearchResult[]?> SearchMovie(string title, int? year);

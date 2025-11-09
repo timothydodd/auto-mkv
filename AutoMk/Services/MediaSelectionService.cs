@@ -40,6 +40,8 @@ public class MediaSelectionService : IMediaSelectionService
                 Choices = new List<PromptChoice>
                 {
                     new("search", "Search for a movie or TV series"),
+                    new("imdb", "Search by IMDB ID (e.g., tt1285016)"),
+                    new("manual", "Manual entry (enter title/year directly)"),
                     new("skip", "Skip this disc (continue without renaming)")
                 }
             });
@@ -57,11 +59,23 @@ public class MediaSelectionService : IMediaSelectionService
                     if (searchResult != null)
                         return searchResult;
                     break;
-                    
+
+                case "imdb":
+                    var imdbResult = await PerformImdbIdSearchAsync();
+                    if (imdbResult != null)
+                        return imdbResult;
+                    break;
+
+                case "manual":
+                    var manualResult = PerformManualEntryAsync();
+                    if (manualResult != null)
+                        return manualResult;
+                    break;
+
                 case "skip":
                     _logger.LogInformation("User chose to skip disc without identification");
                     return null;
-                    
+
                 default:
                     break;
             }
@@ -160,15 +174,6 @@ public class MediaSelectionService : IMediaSelectionService
         }
 
         _promptService.DisplayHeader("Search Results");
-        
-        for (int i = 0; i < searchResults.Count; i++)
-        {
-            var result = searchResults[i];
-            Console.WriteLine($"{i + 1}. {result.Title} ({result.Year}) - {result.Type}");
-        }
-        
-        Console.WriteLine($"{searchResults.Count + 1}. None of these (search again)");
-        Console.WriteLine();
 
         var choices = new List<PromptChoice>();
         for (int i = 0; i < searchResults.Count; i++)
@@ -297,16 +302,6 @@ public class MediaSelectionService : IMediaSelectionService
     private async Task<OptimizedSearchResult?> DisplayAndSelectResultAsync(OptimizedSearchResult[] results)
     {
         _promptService.DisplayHeader("Search Results");
-        
-        for (int i = 0; i < results.Length; i++)
-        {
-            var result = results[i];
-            Console.WriteLine($"{i + 1}. {result.Title} ({result.Year}) - {result.Type}");
-        }
-        
-        Console.WriteLine($"{results.Length + 1}. Search again");
-        Console.WriteLine($"{results.Length + 2}. Skip this disc");
-        Console.WriteLine();
 
         var choices = new List<PromptChoice>();
         for (int i = 0; i < results.Length; i++)
@@ -351,6 +346,146 @@ public class MediaSelectionService : IMediaSelectionService
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Handles searching for media by IMDB ID
+    /// </summary>
+    /// <returns>Media information from OMDB or null if cancelled/not found</returns>
+    private async Task<OptimizedSearchResult?> PerformImdbIdSearchAsync()
+    {
+        _promptService.DisplayHeader("Search by IMDB ID");
+        Console.WriteLine("Enter an IMDB ID to lookup media information.");
+        Console.WriteLine("Format: tt followed by numbers (e.g., tt1285016, tt0108778)");
+        Console.WriteLine();
+
+        while (true)
+        {
+            // Get IMDB ID from user
+            var imdbIdResult = _promptService.TextPrompt(new TextPromptOptions
+            {
+                Question = "Enter IMDB ID:",
+                Required = true,
+                PromptText = "IMDB ID",
+                ValidationPattern = @"^tt\d+$",
+                ValidationMessage = "IMDB ID must be in format 'tt' followed by numbers (e.g., tt1285016)"
+            });
+
+            if (!imdbIdResult.Success || imdbIdResult.Cancelled || string.IsNullOrWhiteSpace(imdbIdResult.Value))
+            {
+                return null;
+            }
+
+            var imdbId = imdbIdResult.Value.Trim();
+
+            Console.WriteLine($"Looking up IMDB ID: {imdbId}");
+            Console.WriteLine();
+
+            // Fetch from OMDB
+            var mediaResponse = await _omdbClient.GetMediaByImdbId(imdbId);
+
+            if (mediaResponse == null || !mediaResponse.IsValidOmdbResponse())
+            {
+                _promptService.DisplayError($"No media found for IMDB ID: {imdbId}");
+                Console.WriteLine();
+
+                // Ask if they want to try again
+                var retryResult = _promptService.ConfirmPrompt(new ConfirmPromptOptions
+                {
+                    Question = "Would you like to try a different IMDB ID?",
+                    DefaultValue = true
+                });
+
+                if (!retryResult.Success || !retryResult.Value)
+                {
+                    return null;
+                }
+
+                continue;
+            }
+
+            // Convert to OptimizedSearchResult
+            var result = ModelConverter.ToOptimizedSearchResult(mediaResponse);
+
+            Console.WriteLine($"Found: {result.Title} ({result.Year}) - {result.Type?.ToUpperInvariant()}");
+            _logger.LogInformation($"IMDB ID search successful: {imdbId} -> {result.Title} ({result.Year})");
+
+            return result;
+        }
+    }
+
+    /// <summary>
+    /// Handles manual entry of media information without OMDB search
+    /// </summary>
+    /// <returns>Manually entered media information or null if cancelled</returns>
+    private OptimizedSearchResult? PerformManualEntryAsync()
+    {
+        _promptService.DisplayHeader("Manual Media Entry");
+        Console.WriteLine("Enter media information directly (no OMDB search)");
+        Console.WriteLine();
+
+        // First ask for media type
+        var typeResult = _promptService.SelectPrompt<MediaTypePrediction>(new SelectPromptOptions
+        {
+            Question = "What type of media is this?",
+            Choices = new List<PromptChoice>
+            {
+                new("movie", "Movie", MediaTypePrediction.Movie),
+                new("series", "TV Series", MediaTypePrediction.TvSeries)
+            }
+        });
+
+        if (!typeResult.Success || typeResult.Cancelled)
+        {
+            return null;
+        }
+
+        bool isMovie = typeResult.Value == MediaTypePrediction.Movie;
+        string mediaTypeString = isMovie ? "movie" : "series";
+
+        // Get title (required)
+        var titleResult = _promptService.TextPrompt(new TextPromptOptions
+        {
+            Question = $"Enter {(isMovie ? "movie" : "TV series")} title:",
+            Required = true,
+            PromptText = "Title"
+        });
+
+        if (!titleResult.Success || titleResult.Cancelled || string.IsNullOrWhiteSpace(titleResult.Value))
+        {
+            return null;
+        }
+
+        // Get year (required for manual entry)
+        var yearResult = _promptService.NumberPrompt(new NumberPromptOptions
+        {
+            Question = "Enter year:",
+            Required = true,
+            PromptText = "Year",
+            MinValue = 1900,
+            MaxValue = DateTime.Now.Year + 5
+        });
+
+        if (!yearResult.Success || yearResult.Cancelled)
+        {
+            return null;
+        }
+
+        // Create the manually entered result
+        var manualResult = new OptimizedSearchResult
+        {
+            Title = titleResult.Value.Trim(),
+            Year = yearResult.Value.ToString(),
+            Type = mediaTypeString,
+            ImdbID = null, // Manual entries won't have IMDB ID
+            Poster = null
+        };
+
+        Console.WriteLine();
+        Console.WriteLine($"Created manual entry: {manualResult.Title} ({manualResult.Year}) - {manualResult.Type.ToUpperInvariant()}");
+        _logger.LogInformation($"Manual entry created: {manualResult.Title} ({manualResult.Year}) - {manualResult.Type}");
+
+        return manualResult;
     }
 
     /// <summary>

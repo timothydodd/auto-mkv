@@ -120,12 +120,12 @@ public class MediaIdentificationService : IMediaIdentificationService
         }
     }
 
-    public async Task<PreIdentifiedMedia?> PreIdentifyMediaAsync(string discName, List<AkTitle> titlesToRip)
+    public async Task<PreIdentifiedMedia?> PreIdentifyMediaAsync(string discName, List<AkTitle> titlesToRip, bool isAutoMode = true)
     {
         // Reset disc-specific auto-accept flag for the new disc
         _seriesConfigurationService.ResetDiscAutoAccept();
-        
-        _logger.LogInformation($"Pre-identifying media for disc: {discName}");
+
+        _logger.LogInformation($"Pre-identifying media for disc: {discName} (Auto Mode: {isAutoMode})");
 
         try
         {
@@ -161,11 +161,11 @@ public class MediaIdentificationService : IMediaIdentificationService
             }
             else if (foundMovie)
             {
-                return await HandleMovieFoundAsync(discName, searchTitle, movieResult);
+                return await HandleMovieFoundAsync(discName, searchTitle, movieResult, isAutoMode);
             }
 
             // Try searching with year extraction
-            var movieWithYearResult = await TrySearchMovieWithYearAsync(discName, searchTitle);
+            var movieWithYearResult = await TrySearchMovieWithYearAsync(discName, searchTitle, isAutoMode);
             if (movieWithYearResult != null)
             {
                 return movieWithYearResult;
@@ -1020,7 +1020,7 @@ public class MediaIdentificationService : IMediaIdentificationService
         return await ConfirmAndProcessIdentificationAsync(discName, searchTitle, seriesResult, false);
     }
 
-    private async Task<PreIdentifiedMedia?> HandleMovieFoundAsync(string discName, string searchTitle, ConfirmationInfo movieResult)
+    private async Task<PreIdentifiedMedia?> HandleMovieFoundAsync(string discName, string searchTitle, ConfirmationInfo movieResult, bool isAutoMode)
     {
         _logger.LogInformation($"Identified as Movie: {movieResult.Title}");
 
@@ -1029,6 +1029,15 @@ public class MediaIdentificationService : IMediaIdentificationService
         {
             _logger.LogInformation($"Found existing manual identification for {discName} - skipping confirmation prompt");
             return CreatePreIdentifiedMedia(ModelConverter.ToMediaIdentity(movieResult), false, "automatic");
+        }
+
+        // In auto mode, skip confirmation for movies and proceed automatically
+        if (isAutoMode)
+        {
+            _logger.LogInformation($"Auto mode enabled - skipping confirmation for movie: {movieResult.Title}");
+            var mediaIdentity = ModelConverter.ToMediaIdentity(movieResult);
+            await _stateManager.SaveManualIdentificationAsync(discName, mediaIdentity);
+            return CreatePreIdentifiedMedia(mediaIdentity, false, "automatic");
         }
 
         return await ConfirmAndProcessIdentificationAsync(discName, searchTitle, movieResult, true);
@@ -1059,7 +1068,7 @@ public class MediaIdentificationService : IMediaIdentificationService
         return CreatePreIdentifiedMedia(ModelConverter.ToMediaIdentity(mediaData), false, "automatic");
     }
 
-    private async Task<PreIdentifiedMedia?> TrySearchMovieWithYearAsync(string discName, string searchTitle)
+    private async Task<PreIdentifiedMedia?> TrySearchMovieWithYearAsync(string discName, string searchTitle, bool isAutoMode)
     {
         var (title, year) = ExtractTitleAndYear(searchTitle);
         if (!year.HasValue)
@@ -1082,6 +1091,14 @@ public class MediaIdentificationService : IMediaIdentificationService
         {
             _logger.LogInformation($"Found existing manual identification - skipping confirmation prompt");
             return CreatePreIdentifiedMedia(ModelConverter.ToMediaIdentity(movieData), false, "automatic");
+        }
+
+        // In auto mode, skip confirmation for movies and proceed automatically
+        if (isAutoMode)
+        {
+            _logger.LogInformation($"Auto mode enabled - skipping confirmation for movie: {movieData.Title}");
+            await _stateManager.SaveManualIdentificationAsync(discName, movieIdentity!);
+            return CreatePreIdentifiedMedia(movieIdentity, false, "automatic");
         }
 
         return await ConfirmAndProcessIdentificationAsync(discName, searchTitle, movieData, true);

@@ -1,0 +1,78 @@
+{
+  "discs": [
+    {
+      "name": "Test_Series_S1_D1",
+      "titles": [
+        {
+          "id": "0",
+          "name": "title_t00.mkv",
+          "duration": "00:22:15",
+          "sizeGB": 1.8,
+          "chapterCount": 3,
+          "sourceFileName": "00800.mpls",
+          "ripDurationSeconds": 3
+        },
+        {
+          "id": "1",
+          "name": "title_t01.mkv",
+          "duration": "00:22:30",
+          "sizeGB": 1.9,
+          "chapterCount": 3,
+          "sourceFileName": "00801.mpls",
+          "ripDurationSeconds": 3
+        },
+        {
+          "id": "2",
+          "name": "title_t02.mkv",
+          "duration": "00:45:00",
+          "sizeGB": 3.7,
+          "chapterCount": 6,
+          "sourceFileName": "00802.mpls",
+          "ripDurationSeconds": 3
+        }
+      ]
+    },
+    {
+      "name": "Test_Series_S1_D2",
+      "titles": [
+        {
+          "id": "0",
+          "name": "title_t00.mkv",
+          "duration": "00:22:45",
+          "sizeGB": 1.9,
+          "chapterCount": 3,
+          "sourceFileName": "00800.mpls",
+          "ripDurationSeconds": 3
+        },
+        {
+          "id": "1",
+          "name": "title_t01.mkv",
+          "duration": "00:23:00",
+          "sizeGB": 2.0,
+          "chapterCount": 3,
+          "sourceFileName": "00801.mpls",
+          "ripDurationSeconds": 3
+        }
+      ]
+    },
+    {
+      "name": "Test_Movie_2023",
+      "titles": [
+        {
+          "id": "0",
+          "name": "title_t00.mkv",
+          "duration": "01:45:30",
+          "sizeGB": 15.5,
+          "chapterCount": 18,
+          "sourceFileName": "00800.mpls",
+          "ripDurationSeconds": 5
+        }
+      ]
+    }
+  ],
+  "drive": {
+    "id": "0",
+    "driveName": "EMULATOR_DRIVE",
+    "driveLetter": "E:"
+  }
+}

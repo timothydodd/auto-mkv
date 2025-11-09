@@ -1,0 +1,64 @@
+{
+  "discs": [
+    {
+      "name": "THE_MATRIX_1999",
+      "titles": [
+        {
+          "id": "0",
+          "name": "title_t00.mkv",
+          "duration": "02:16:23",
+          "sizeGB": 28.5,
+          "chapterCount": 24,
+          "sourceFileName": "00800.mpls",
+          "ripDurationSeconds": 45
+        },
+        {
+          "id": "1",
+          "name": "title_t01.mkv",
+          "duration": "00:12:45",
+          "sizeGB": 2.1,
+          "chapterCount": 3,
+          "sourceFileName": "00801.mpls",
+          "ripDurationSeconds": 5
+        },
+        {
+          "id": "2",
+          "name": "title_t02.mkv",
+          "duration": "00:08:30",
+          "sizeGB": 1.5,
+          "chapterCount": 2,
+          "sourceFileName": "00802.mpls",
+          "ripDurationSeconds": 5
+        }
+      ]
+    },
+    {
+      "name": "INCEPTION_2010",
+      "titles": [
+        {
+          "id": "0",
+          "name": "title_t00.mkv",
+          "duration": "02:28:48",
+          "sizeGB": 32.7,
+          "chapterCount": 28,
+          "sourceFileName": "00800.mpls",
+          "ripDurationSeconds": 50
+        },
+        {
+          "id": "1",
+          "name": "title_t01.mkv",
+          "duration": "00:15:22",
+          "sizeGB": 2.8,
+          "chapterCount": 4,
+          "sourceFileName": "00801.mpls",
+          "ripDurationSeconds": 8
+        }
+      ]
+    }
+  ],
+  "drive": {
+    "id": "0",
+    "driveName": "BD-RE ASUS BC-12D2HT",
+    "driveLetter": "E:"
+  }
+}

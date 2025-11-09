@@ -323,7 +323,7 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
     {
         // Step 1: Pre-identify media before determining what to rip
         _logger.LogInformation($"Identifying media for disc: {drive.CDName}");
-        var mediaInfo = await _mediaService.PreIdentifyMediaAsync(drive.CDName, drive.Titles.Values.ToList());
+        var mediaInfo = await _mediaService.PreIdentifyMediaAsync(drive.CDName, drive.Titles.Values.ToList(), isAutoMode: true);
 
         if (mediaInfo == null)
         {
@@ -546,20 +546,26 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
 
         // Step 3: Pre-rip confirmation with all settings
         RipConfirmationResult confirmationResult = RipConfirmationResult.Proceed;
-        bool skipConfirmationForSeries = false;
+        bool skipConfirmation = false;
 
+        // Check if we should skip confirmation for movies in auto mode
+        if (mediaInfo?.MediaData?.Type?.Equals("movie", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            skipConfirmation = true;
+            _logger.LogInformation($"Skipping pre-rip confirmation for movie {mediaInfo.MediaData.Title} in auto mode");
+        }
         // Check if we should skip confirmation for this series
-        if (mediaInfo?.MediaData?.Type?.Equals("series", StringComparison.OrdinalIgnoreCase) == true)
+        else if (mediaInfo?.MediaData?.Type?.Equals("series", StringComparison.OrdinalIgnoreCase) == true)
         {
             var profile = await _profileService.GetProfileAsync(mediaInfo.MediaData.Title!);
             if (profile?.AlwaysSkipConfirmation == true)
             {
-                skipConfirmationForSeries = true;
+                skipConfirmation = true;
                 _logger.LogInformation($"Skipping confirmation for series {mediaInfo.MediaData.Title} due to saved preference");
             }
         }
 
-        if (!skipConfirmationForSeries)
+        if (!skipConfirmation)
         {
             var confirmation = new RipConfirmation
             {

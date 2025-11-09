@@ -9,16 +9,20 @@ A .NET 9.0 console application that provides automated MakeMKV disc ripping with
 - 🔍 **Intelligent Media Identification**: Automatically identifies movies and TV series via OMDB API
 - 📁 **Plex-Compatible Organization**: Organizes ripped files according to Plex naming conventions
 - 📺 **Multi-Disc TV Series Support**: Handles multi-disc TV series with episode numbering continuity
+- 🗂️ **Discover and Name Mode**: Organize existing MKV files without ripping - perfect for cleaning up your media library
 - 🖥️ **Cross-Platform**: Supports both Windows and WSL environments
 - 📊 **Progress Tracking**: Real-time progress reporting during ripping operations
 - 🔄 **File Size Filtering**: Configurable size filtering to exclude unwanted content
+- ⚙️ **Multiple Operating Modes**: Automatic, Manual, TV Series Profile Configuration, and Discover & Name
 
 ## Prerequisites
 
 - .NET 9.0 SDK
-- MakeMKV (licensed version for Blu-ray support)
 - OMDB API key (free tier available at [omdbapi.com](http://www.omdbapi.com/))
-- CD/DVD/Blu-ray drive
+- MakeMKV (licensed version for Blu-ray support) - *Required for disc ripping modes only*
+- CD/DVD/Blu-ray drive - *Required for disc ripping modes only*
+
+**Note:** Discover and Name mode only requires .NET 9.0 and an OMDB API key - no MakeMKV or optical drive needed.
 
 ## Installation
 
@@ -77,6 +81,11 @@ Run the application:
 dotnet run
 ```
 
+### Operating Modes
+
+AutoMk offers four operating modes to suit different workflows:
+
+#### 1. Automatic Mode (Default)
 The application will:
 1. Monitor your optical drives for inserted discs
 2. Automatically scan and rip eligible content
@@ -84,10 +93,57 @@ The application will:
 4. Organize files into appropriate directories
 5. Eject the disc when complete
 
+Features:
+- Uses OMDB API for automatic identification
+- Tracks TV series episode numbers across multiple discs
+- Filters tracks by size settings
+- Minimal user interaction required
+
+#### 2. Manual Mode
+Provides full control over the ripping process:
+- User confirms all media identification
+- User selects which tracks to rip
+- User manually maps episodes for TV series
+- State file is bypassed for fresh processing every time
+
+#### 3. Configure TV Series Profiles
+Pre-configure settings for TV series before ripping:
+- Set episode size ranges (min/max GB)
+- Choose track sorting strategy (MakeMKV order or MPLS filename)
+- Configure double episode handling (auto-detect, always single, always double)
+- Set starting season/episode numbers
+- Enable auto-increment for multi-disc series
+
+#### 4. Discover and Name Mode
+Organize existing MKV files without ripping - perfect for cleaning up your media library:
+
+**Workflow:**
+1. Specify a directory containing MKV files
+2. For each file found, choose to:
+   - **Identify and name**: Search OMDB, identify as movie or TV series, rename with proper naming, and organize into Plex structure
+   - **Move without naming**: Transfer to file server with original name (moved to "_unidentified" folder)
+   - **Skip**: Leave the file as-is
+
+**Features:**
+- No disc or MakeMKV required
+- Uses the same OMDB identification as ripping mode
+- Generates Plex-compatible names and folder structure
+- Supports both movies and TV series
+- Integrates with file transfer to remote servers
+- Overwrite protection for existing files
+- Progress summary at completion
+
+**Example Use Cases:**
+- Organizing files ripped manually with MakeMKV
+- Cleaning up a directory of renamed MKV files
+- Batch processing media from other sources
+- Preparing files for Plex import
+
 ### Output Structure
 
 - **Movies**: `Movies/{Title} ({Year})/{Title} ({Year}).mkv`
 - **TV Series**: `TV Shows/{Series}/Season {##}/{Series} - S##E## - {Episode Title}.mkv`
+- **Unidentified Files**: `_unidentified/{original-filename}.mkv`
 
 ## Architecture
 
@@ -101,10 +157,14 @@ AutoMk follows clean architecture principles with dependency injection:
 ### Key Services
 
 - `MakeMkvService`: Orchestrates MakeMKV operations
-- `MediaIdentificationService`: OMDB API integration
+- `MediaIdentificationService`: OMDB API integration and media processing
 - `MediaNamingService`: Generates Plex-compatible names
 - `MediaStateManager`: Maintains state across disc sessions
 - `DriveWatcher`: Monitors optical drives for media
+- `DiscoverAndNameService`: Organizes existing MKV files without ripping
+- `MediaSelectionService`: Interactive media search and selection
+- `SeriesConfigurationService`: TV series profile management
+- `PatternLearningService`: Machine learning for user selection patterns
 
 ## Development
 
@@ -130,6 +190,48 @@ dotnet publish -c Release -r win-x64
 # Linux x64 (for WSL)
 dotnet publish -c Release -r linux-x64
 ```
+
+### Testing with MakeMKV Emulator
+
+AutoMk includes a MakeMKV emulator for testing without requiring physical discs or a MakeMKV license. The emulator mimics MakeMKV's command-line interface and allows you to configure sequences of virtual discs with custom tracks.
+
+**Features:**
+- Emulates MakeMKV's command-line interface completely
+- Configurable disc sequences with custom tracks, sizes, and durations
+- Simulates realistic ripping progress and timing
+- Automatically advances through multiple discs
+- Perfect for development, testing, and CI/CD pipelines
+
+**Quick Start:**
+
+1. Build the emulator:
+   ```bash
+   cd MakeMkvEmulator
+   dotnet build
+   ```
+
+2. Copy an example configuration:
+   ```bash
+   cp examples/quick-test-example.json emulator-config.json
+   ```
+
+3. Configure AutoMk to use the emulator:
+   ```json
+   {
+     "Rip": {
+       "MakeMkvPath": "/path/to/MakeMkvEmulator/bin/Debug/net9.0/makemkvcon64"
+     }
+   }
+   ```
+
+4. Run AutoMk - it will automatically use the emulated discs!
+
+**Example configurations included:**
+- `tv-series-example.json`: Multi-disc TV series (Breaking Bad S1)
+- `movie-example.json`: Movies with bonus features (The Matrix, Inception)
+- `quick-test-example.json`: Fast testing with 3-5 second rip times
+
+See [MakeMkvEmulator/README.md](MakeMkvEmulator/README.md) for detailed documentation and configuration options.
 
 ## Contributing
 

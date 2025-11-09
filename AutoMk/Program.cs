@@ -118,6 +118,10 @@ namespace AutoMk
 
                     // Register pattern learning service
                     services.AddSingleton<IPatternLearningService, PatternLearningService>();
+
+                    // Register discover and name service
+                    services.AddSingleton<IDiscoverAndNameService, DiscoverAndNameService>();
+
                     services.AddLogging((loggingBuilder) =>
                     {
                         // Clear default providers first (Host.CreateDefaultBuilder adds console by default)
@@ -218,10 +222,15 @@ namespace AutoMk
             Console.WriteLine("   • Set episode sizes, sorting, and handling preferences");
             Console.WriteLine("   • View and edit existing series profiles");
             Console.WriteLine();
+            Console.WriteLine("4. DISCOVER AND NAME MODE");
+            Console.WriteLine("   • Search for existing MKV files (no ripping)");
+            Console.WriteLine("   • Identify and rename files with proper naming");
+            Console.WriteLine("   • Organize files and optionally transfer to server");
+            Console.WriteLine();
 
             while (true)
             {
-                Console.Write("Enter your choice (1 for Automatic, 2 for Manual, 3 for Configure): ");
+                Console.Write("Enter your choice (1 for Automatic, 2 for Manual, 3 for Configure, 4 for Discover): ");
                 var choice = Console.ReadLine()?.Trim();
 
                 switch (choice)
@@ -237,11 +246,37 @@ namespace AutoMk
                         Console.WriteLine();
                         continue;
 
+                    case "4":
+                        RunDiscoverAndNameMode();
+                        // After discovery, ask if user wants to continue or exit
+                        Console.WriteLine();
+                        Console.Write("Run discover mode again or return to mode selection? (d for Discover, m for Mode selection, q to Quit): ");
+                        var nextAction = Console.ReadLine()?.Trim().ToLowerInvariant();
+                        if (nextAction == "d")
+                        {
+                            // Run discover mode again
+                            continue;
+                        }
+                        else if (nextAction == "m")
+                        {
+                            // Return to mode selection
+                            Console.WriteLine("Returning to mode selection...");
+                            Console.WriteLine();
+                            continue;
+                        }
+                        else
+                        {
+                            // Quit
+                            Console.WriteLine("Exiting...");
+                            Environment.Exit(0);
+                        }
+                        break;
+
                     case "2":
                         return true;
 
                     default:
-                        Console.WriteLine("Invalid choice. Please enter 1 or 2.");
+                        Console.WriteLine("Invalid choice. Please enter 1, 2, 3, or 4.");
                         Console.WriteLine();
                         break;
                 }
@@ -417,6 +452,63 @@ namespace AutoMk
                     Console.ReadKey();
                     break;
             }
+        }
+
+        private static void RunDiscoverAndNameMode()
+        {
+            // Create a temporary service provider for the discover and name service
+            var config = Configure();
+            var omdbSettings = config.GetSection("OmdbSettings").Get<OmdbSettings>()
+                ?? throw new InvalidOperationException("OmdbSettings configuration is required");
+            var rip = config.GetSection("RipSettings").Get<RipSettings>()
+                ?? throw new InvalidOperationException("RipSettings configuration is required");
+
+            var services = new ServiceCollection();
+
+            // Register HttpClients
+            services.AddHttpClient<OmdbClient>();
+            services.AddHttpClient<FileTransferClient>();
+
+            // Register settings
+            services.AddSingleton(omdbSettings);
+            services.AddSingleton(rip);
+            if (rip.FileTransferSettings != null)
+            {
+                services.AddSingleton(rip.FileTransferSettings);
+            }
+            else
+            {
+                services.AddSingleton(new FileTransferSettings());
+            }
+
+            // Register logging
+            services.AddLogging(loggingBuilder =>
+            {
+                loggingBuilder.ClearProviders();
+                loggingBuilder.SetMinimumLevel(LogLevel.Information);
+                if (rip.ShowConsoleLogging)
+                {
+                    loggingBuilder.AddConsole();
+                }
+            });
+
+            // Register all required services
+            services.AddSingleton<IConsolePromptService, ConsolePromptService>();
+            services.AddSingleton<IConsoleOutputService, ConsoleOutputService>();
+            services.AddSingleton<IOmdbClient, OmdbClient>();
+            services.AddSingleton<IFileTransferClient, FileTransferClient>();
+            services.AddSingleton<IMediaNamingService, MediaNamingService>();
+            services.AddSingleton<IMediaMoverService, MediaMoverService>();
+            services.AddSingleton<ISeasonInfoCacheService, SeasonInfoCacheService>();
+            services.AddSingleton<IEnhancedOmdbService, EnhancedOmdbService>();
+            services.AddSingleton<IMediaSelectionService, MediaSelectionService>();
+            services.AddSingleton<IDiscoverAndNameService, DiscoverAndNameService>();
+
+            var serviceProvider = services.BuildServiceProvider();
+            var discoverService = serviceProvider.GetRequiredService<IDiscoverAndNameService>();
+
+            // Run the discover and name workflow
+            discoverService.RunDiscoverAndNameWorkflowAsync().GetAwaiter().GetResult();
         }
 
         private static async Task CleanupExistingProcesses()

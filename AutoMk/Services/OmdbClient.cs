@@ -68,6 +68,27 @@ public class OmdbClient : IOmdbClient
         return null;
     }
 
+    public async Task<OmdbMovieResponse?> GetMediaByImdbId(string imdbId)
+    {
+        // IMDB IDs don't need URL encoding but we'll clean it up
+        imdbId = imdbId.Trim();
+
+        var url = $"{_omdbSettings.BaseUrl}?apikey={_omdbSettings.ApiKey}&i={imdbId}";
+
+        var response = await _client.GetAsync(url);
+        try
+        {
+            response.EnsureSuccessStatusCode();
+            var content = await response.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<OmdbMovieResponse>(content, _jsonOptions);
+        }
+        catch (Exception)
+        {
+            // Log exception if needed
+        }
+        return null;
+    }
+
     public async Task<OmdbSeasonResponse?> GetSeasonInfo(string seriesName, int season)
     {
         //encode title
