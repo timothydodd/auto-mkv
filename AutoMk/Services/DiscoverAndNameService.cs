@@ -383,24 +383,63 @@ public class DiscoverAndNameService : IDiscoverAndNameService
                 return;
             }
 
-            // Create a simple folder structure for unidentified files
-            var unidentifiedDir = Path.Combine(_ripSettings.Output, "_unidentified");
-            FileSystemHelper.EnsureDirectoryExists(unidentifiedDir);
+            // Check if the file is already in a subdirectory (already organized)
+            // If so, transfer it directly without moving to _unidentified
+            var fileDirectory = Path.GetDirectoryName(filePath) ?? string.Empty;
+            var outputPath = Path.GetFullPath(_ripSettings.Output);
+            var isInSubdirectory = !Path.GetFullPath(fileDirectory).Equals(outputPath, StringComparison.OrdinalIgnoreCase);
 
-            var destinationPath = Path.Combine(unidentifiedDir, fileName);
+            string fileToTransfer;
+            string relativePath;
 
-            // Move file to unidentified folder first
-            File.Move(filePath, destinationPath);
+            if (isInSubdirectory)
+            {
+                // File is already organized (in a subdirectory), transfer it directly
+                fileToTransfer = filePath;
+                relativePath = Path.GetRelativePath(outputPath, filePath);
+                _logger.LogInformation("File is already organized, transferring directly: {RelativePath}", relativePath);
+                Console.WriteLine($"File is already organized, transferring: {relativePath}");
+            }
+            else
+            {
+                // File is in root output folder, move to _unidentified first
+                var unidentifiedDir = Path.Combine(_ripSettings.Output, "_unidentified");
+                FileSystemHelper.EnsureDirectoryExists(unidentifiedDir);
 
-            _logger.LogInformation($"Moved to unidentified folder: {fileName}");
-            _consoleOutput.ShowFilesMovedTo(unidentifiedDir);
+                var destinationPath = Path.Combine(unidentifiedDir, fileName);
 
-            // Trigger file transfer
-            await _moverService.FindFiles(_ripSettings.Output);
+                // Move file to unidentified folder first
+                File.Move(filePath, destinationPath);
+
+                fileToTransfer = destinationPath;
+                relativePath = Path.GetRelativePath(outputPath, destinationPath);
+
+                _logger.LogInformation("Moved to unidentified folder: {FileName}", fileName);
+                _consoleOutput.ShowFilesMovedTo(unidentifiedDir);
+            }
+
+            // Transfer the file directly with progress shown
+            Console.WriteLine($"Starting transfer: {relativePath}");
+            var result = await _fileTransferClient.SendFileInBackground(relativePath, fileToTransfer);
+
+            if (result == true)
+            {
+                _logger.LogInformation("Successfully transferred file: {RelativePath}", relativePath);
+                Console.WriteLine($"Successfully transferred: {relativePath}");
+            }
+            else if (result == false)
+            {
+                _logger.LogWarning("Failed to transfer file: {RelativePath}", relativePath);
+                _consoleOutput.ShowError($"Failed to transfer: {relativePath}");
+            }
+            else
+            {
+                _logger.LogDebug("File transfer skipped (disabled): {RelativePath}", relativePath);
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Error moving file to server: {fileName}");
+            _logger.LogError(ex, "Error moving file to server: {FileName}", fileName);
             _consoleOutput.ShowError($"Error moving file: {ex.Message}");
         }
     }
