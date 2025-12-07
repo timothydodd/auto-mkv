@@ -51,6 +51,7 @@ public class FileTransferClient : IFileTransferClient
         if (!File.Exists(filePath))
         {
             _logger.LogError($"File not found: {filePath}");
+            _consoleOutput.ShowError($"Transfer failed - File not found: {filePath}");
             return false;
         }
 
@@ -62,6 +63,7 @@ public class FileTransferClient : IFileTransferClient
         if (!await IsServiceAvailableAsync(healthCheckCts.Token))
         {
             _logger.LogWarning("Target service is not available (health check failed or timed out), skipping file transfer for: {FilePath}", filePath);
+            _consoleOutput.ShowError($"Transfer failed - Service unavailable at {_settings.TargetServiceUrl} (health check failed)");
             return false;
         }
 
@@ -158,10 +160,7 @@ public class FileTransferClient : IFileTransferClient
                     }
                 }
             }
-            else
-            {
-                _logger.LogError($"Failed to transfer {Path.GetFileName(filePath)}");
-            }
+            // Note: Detailed error messages are shown by TransferFileAsync
 
             return success;
         }
@@ -254,12 +253,32 @@ public class FileTransferClient : IFileTransferClient
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError($"Transfer failed with status {response.StatusCode}: {errorContent}");
+                _consoleOutput.ShowError($"Transfer failed - HTTP {(int)response.StatusCode} ({response.StatusCode}): {errorContent}");
                 return false;
             }
+        }
+        catch (HttpRequestException httpEx)
+        {
+            _logger.LogError(httpEx, "HTTP error during file transfer");
+            _consoleOutput.ShowError($"Transfer failed - Connection error: {httpEx.Message}");
+            return false;
+        }
+        catch (TaskCanceledException tcEx) when (tcEx.InnerException is TimeoutException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogError(tcEx, "File transfer timed out");
+            _consoleOutput.ShowError($"Transfer failed - Request timed out after {_settings.TransferTimeoutMinutes} minutes");
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("File transfer was cancelled");
+            _consoleOutput.ShowWarning("Transfer cancelled by user");
+            return false;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during file transfer");
+            _consoleOutput.ShowError($"Transfer failed - {ex.GetType().Name}: {ex.Message}");
             return false;
         }
     }
