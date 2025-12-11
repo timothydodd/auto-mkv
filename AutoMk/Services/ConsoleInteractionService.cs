@@ -7,6 +7,7 @@ using AutoMk.Interfaces;
 using AutoMk.Models;
 using AutoMk.Utilities;
 using Microsoft.Extensions.Logging;
+using Spectre.Console;
 
 namespace AutoMk.Services;
 
@@ -32,8 +33,8 @@ public class ConsoleInteractionService
     public async Task<OptimizedSearchResult?> InteractiveMediaSearchAsync(string originalTitle, string discName)
     {
         _promptService.DisplayHeader($"Unable to automatically identify media for disc: {discName}");
-        Console.WriteLine($"Original search: {originalTitle}");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[dim]Original search:[/] [white]{Markup.Escape(originalTitle)}[/]");
+        AnsiConsole.WriteLine();
 
         while (true)
         {
@@ -60,11 +61,11 @@ public class ConsoleInteractionService
                     if (searchResult != null)
                         return searchResult;
                     break;
-                    
+
                 case "skip":
                     _logger.LogInformation("User chose to skip disc without identification");
                     return null;
-                    
+
                 default:
                     break;
             }
@@ -90,7 +91,7 @@ public class ConsoleInteractionService
         }
 
         bool isMovie = typeResult.Value == MediaType.Movie;
-        
+
         // Get title
         var titleResult = _promptService.TextPrompt(new TextPromptOptions
         {
@@ -116,12 +117,12 @@ public class ConsoleInteractionService
 
         int? year = yearResult.Success ? yearResult.Value : null;
 
-        Console.WriteLine($"Searching for {(isMovie ? "movie" : "TV series")}: {titleResult.Value}" + (year.HasValue ? $" ({year})" : ""));
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[cyan]Searching for {(isMovie ? "movie" : "TV series")}:[/] [white]{Markup.Escape(titleResult.Value!)}[/]" + (year.HasValue ? $" [dim]({year})[/]" : ""));
+        AnsiConsole.WriteLine();
 
         // Search based on type
         OptimizedSearchResult[]? searchResults;
-        
+
         if (!isMovie)
         {
             // For TV series, try direct lookup first
@@ -148,11 +149,11 @@ public class ConsoleInteractionService
             searchResults = searchArray?.Where(r => r.Type?.Equals("movie", StringComparison.OrdinalIgnoreCase) == true)
                 .Select(r => OptimizedSearchResult.FromOmdbSearchResult(r)).ToArray();
         }
-        
+
         if (searchResults == null || searchResults.Length == 0)
         {
-            Console.WriteLine($"No {(isMovie ? "movies" : "TV series")} found matching '{titleResult.Value}'.");
-            Console.WriteLine();
+            AnsiConsole.MarkupLine($"[yellow]No {(isMovie ? "movies" : "TV series")} found matching[/] [white]'{Markup.Escape(titleResult.Value!)}'[/]");
+            AnsiConsole.WriteLine();
             return null;
         }
 
@@ -162,15 +163,28 @@ public class ConsoleInteractionService
     private async Task<OptimizedSearchResult?> DisplayAndSelectResultAsync(OptimizedSearchResult[] results)
     {
         _promptService.DisplayHeader("Search Results");
-        
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("#")
+            .AddColumn("Title")
+            .AddColumn("Year")
+            .AddColumn("Type");
+
         for (int i = 0; i < results.Length; i++)
         {
             var result = results[i];
-            Console.WriteLine($"{i + 1}. {result.Title} ({result.Year}) - {result.Type}");
-            
-            // Add additional info if available
+            table.AddRow(
+                (i + 1).ToString(),
+                Markup.Escape(result.Title ?? "Unknown"),
+                result.Year ?? "N/A",
+                result.Type ?? "Unknown"
+            );
         }
-        
+
+        AnsiConsole.Write(table);
+        AnsiConsole.WriteLine();
+
         var choices = new List<PromptChoice>();
         for (int i = 0; i < results.Length; i++)
         {
@@ -196,8 +210,8 @@ public class ConsoleInteractionService
         if (selection >= 1 && selection <= results.Length)
         {
             var selected = results[selection - 1];
-            Console.WriteLine($"Selected: {selected.Title} ({selected.Year})");
-            
+            AnsiConsole.MarkupLine($"[green]Selected:[/] [white]{Markup.Escape(selected.Title ?? "Unknown")} ({selected.Year})[/]");
+
             // Get full details for the selected item
             if (selected.Type?.Equals("series", StringComparison.OrdinalIgnoreCase) == true)
             {
@@ -242,8 +256,8 @@ public class ConsoleInteractionService
         }
 
         _promptService.DisplayHeader($"ERROR processing episode: {seriesTitle} - S{season:D2}E{episode:D2}");
-        Console.WriteLine($"Error: {errorMessage}");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[red]Error:[/] [white]{Markup.Escape(errorMessage)}[/]");
+        AnsiConsole.WriteLine();
 
         var result = _promptService.SelectPrompt<ErrorHandlingChoice>(new SelectPromptOptions
         {
@@ -267,16 +281,16 @@ public class ConsoleInteractionService
             case ErrorHandlingChoice.Continue:
                 _logger.LogInformation("User chose to continue to next episode");
                 return ErrorHandlingChoice.Continue;
-                
+
             case ErrorHandlingChoice.ContinueWithoutPrompting:
                 _logger.LogInformation("User chose to continue without prompting for future errors");
                 _continueWithoutPrompting = true;
                 return ErrorHandlingChoice.ContinueWithoutPrompting;
-                
+
             case ErrorHandlingChoice.Exit:
                 _logger.LogInformation("User chose to exit application");
                 return ErrorHandlingChoice.Exit;
-                
+
             default:
                 return ErrorHandlingChoice.Continue;
         }
@@ -297,12 +311,12 @@ public class ConsoleInteractionService
     public FileAccessErrorChoice HandleFileAccessError(string seriesTitle, int season, int episode, string fileName, string errorMessage)
     {
         _promptService.DisplayHeader($"FILE ACCESS ERROR - {seriesTitle} S{season:D2}E{episode:D2}");
-        Console.WriteLine($"File: {fileName}");
-        Console.WriteLine($"Error: {errorMessage}");
-        Console.WriteLine();
-        Console.WriteLine("This file appears to be in use by another process or access is denied.");
-        Console.WriteLine("This can happen if another application is accessing the file.");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[dim]File:[/] [white]{Markup.Escape(fileName)}[/]");
+        AnsiConsole.MarkupLine($"[red]Error:[/] [white]{Markup.Escape(errorMessage)}[/]");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[yellow]This file appears to be in use by another process or access is denied.[/]");
+        AnsiConsole.MarkupLine("[dim]This can happen if another application is accessing the file.[/]");
+        AnsiConsole.WriteLine();
 
         var result = _promptService.SelectPrompt<FileAccessErrorChoice>(new SelectPromptOptions
         {
@@ -326,15 +340,15 @@ public class ConsoleInteractionService
             case FileAccessErrorChoice.Retry:
                 _logger.LogInformation($"User chose to retry file operation for {fileName}");
                 return FileAccessErrorChoice.Retry;
-                
+
             case FileAccessErrorChoice.Skip:
                 _logger.LogInformation($"User chose to skip file: {fileName}");
                 return FileAccessErrorChoice.Skip;
-                
+
             case FileAccessErrorChoice.Exit:
                 _logger.LogInformation("User chose to exit application due to file access error");
                 return FileAccessErrorChoice.Exit;
-                
+
             default:
                 return FileAccessErrorChoice.Skip;
         }
@@ -343,15 +357,20 @@ public class ConsoleInteractionService
     public bool PromptForAutoIncrement(string seriesTitle, string discName)
     {
         _promptService.DisplayHeader($"Duplicate disc name detected for series: {seriesTitle}");
-        Console.WriteLine($"Disc name: {discName}");
-        Console.WriteLine();
-        Console.WriteLine("This disc name has been processed before for this series.");
-        Console.WriteLine("Would you like to enable Auto Increment mode?");
-        Console.WriteLine();
-        Console.WriteLine("Auto Increment mode assumes that each disc with the same name contains");
-        Console.WriteLine("the next sequential episodes in the series. When episode count exceeds");
-        Console.WriteLine("the current season, it will automatically move to the next season.");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[dim]Disc name:[/] [white]{Markup.Escape(discName)}[/]");
+        AnsiConsole.WriteLine();
+
+        var panel = new Panel(
+            "[yellow]This disc name has been processed before for this series.[/]\n\n" +
+            "Auto Increment mode assumes that each disc with the same name contains\n" +
+            "the next sequential episodes in the series. When episode count exceeds\n" +
+            "the current season, it will automatically move to the next season.")
+        {
+            Header = new PanelHeader("[cyan]Auto Increment Mode[/]"),
+            Border = BoxBorder.Rounded
+        };
+        AnsiConsole.Write(panel);
+        AnsiConsole.WriteLine();
 
         var result = _promptService.SelectPrompt<bool>(new SelectPromptOptions
         {
@@ -376,11 +395,11 @@ public class ConsoleInteractionService
     public bool PromptForAutoIncrementWhenEnabled(string seriesTitle, string discName)
     {
         _promptService.DisplayHeader($"Auto Increment mode is enabled for series: {seriesTitle}");
-        Console.WriteLine($"Processing disc: {discName}");
-        Console.WriteLine();
-        Console.WriteLine("Auto Increment mode will automatically continue episode numbering from where");
-        Console.WriteLine("the series left off, ignoring previous disc processing history.");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[dim]Processing disc:[/] [white]{Markup.Escape(discName)}[/]");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[cyan]Auto Increment mode will automatically continue episode numbering from where[/]");
+        AnsiConsole.MarkupLine("[cyan]the series left off, ignoring previous disc processing history.[/]");
+        AnsiConsole.WriteLine();
 
         var result = _promptService.SelectPrompt<bool>(new SelectPromptOptions
         {
@@ -405,20 +424,28 @@ public class ConsoleInteractionService
     public async Task<MediaIdentity?> SelectBetweenMovieAndSeriesAsync(string discName, ConfirmationInfo movieResult, ConfirmationInfo seriesResult)
     {
         _promptService.DisplayHeader($"Multiple media types found for disc: {discName}");
-        Console.WriteLine("Found both movie and TV series matches:");
-        Console.WriteLine();
-        Console.WriteLine($"MOVIE: {movieResult.Title} ({movieResult.Year})");
+        AnsiConsole.MarkupLine("[yellow]Found both movie and TV series matches:[/]");
+        AnsiConsole.WriteLine();
+
+        // Movie panel
+        var movieContent = $"[white]{Markup.Escape(movieResult.Title ?? "Unknown")} ({movieResult.Year})[/]";
         if (!string.IsNullOrEmpty(movieResult.Plot))
         {
-            Console.WriteLine($"   Plot: {movieResult.Plot}");
+            movieContent += $"\n[dim]{Markup.Escape(movieResult.Plot)}[/]";
         }
-        Console.WriteLine();
-        Console.WriteLine($"TV SERIES: {seriesResult.Title} ({seriesResult.Year})");
+        var moviePanel = new Panel(movieContent) { Header = new PanelHeader("[blue]MOVIE[/]"), Border = BoxBorder.Rounded };
+        AnsiConsole.Write(moviePanel);
+        AnsiConsole.WriteLine();
+
+        // Series panel
+        var seriesContent = $"[white]{Markup.Escape(seriesResult.Title ?? "Unknown")} ({seriesResult.Year})[/]";
         if (!string.IsNullOrEmpty(seriesResult.Plot))
         {
-            Console.WriteLine($"   Plot: {seriesResult.Plot}");
+            seriesContent += $"\n[dim]{Markup.Escape(seriesResult.Plot)}[/]";
         }
-        Console.WriteLine();
+        var seriesPanel = new Panel(seriesContent) { Header = new PanelHeader("[green]TV SERIES[/]"), Border = BoxBorder.Rounded };
+        AnsiConsole.Write(seriesPanel);
+        AnsiConsole.WriteLine();
 
         while (true)
         {
@@ -445,17 +472,17 @@ public class ConsoleInteractionService
                 case "movie":
                     _logger.LogInformation($"User selected movie: {movieResult.Title}");
                     return ModelConverter.ToMediaIdentity(movieResult);
-                    
+
                 case "series":
                     _logger.LogInformation($"User selected TV series: {seriesResult.Title}");
                     return ModelConverter.ToMediaIdentity(seriesResult);
-                    
+
                 case "search":
                     var searchResult = await PerformInteractiveSearchAsync();
                     if (searchResult != null)
                         return ModelConverter.ToMediaIdentity(searchResult);
                     break;
-                    
+
                 case "skip":
                     _logger.LogInformation("User chose to skip identification");
                     return null;
@@ -466,15 +493,22 @@ public class ConsoleInteractionService
     public bool ConfirmMediaIdentification(ConfirmationInfo mediaData, string discName)
     {
         _promptService.DisplayHeader("AUTOMATIC MODE - Media Identification Confirmation");
-        
-        Console.WriteLine($"Disc: {discName}");
-        Console.WriteLine($"Identified as: {mediaData.Title} ({mediaData.Year})");
-        Console.WriteLine($"Type: {mediaData.Type?.ToUpperInvariant()}");
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("Property")
+            .AddColumn("Value");
+
+        table.AddRow("[dim]Disc[/]", Markup.Escape(discName));
+        table.AddRow("[dim]Identified as[/]", $"[white]{Markup.Escape(mediaData.Title ?? "Unknown")} ({mediaData.Year})[/]");
+        table.AddRow("[dim]Type[/]", $"[cyan]{(mediaData.Type?.ToUpperInvariant() ?? "UNKNOWN")}[/]");
         if (!string.IsNullOrEmpty(mediaData.Plot))
         {
-            Console.WriteLine($"Plot: {mediaData.Plot}");
+            table.AddRow("[dim]Plot[/]", Markup.Escape(mediaData.Plot));
         }
-        Console.WriteLine();
+
+        AnsiConsole.Write(table);
+        AnsiConsole.WriteLine();
 
         var result = _promptService.ConfirmPrompt(new ConfirmPromptOptions
         {
@@ -504,13 +538,13 @@ public class ConsoleInteractionService
     public (int season, int episode) PromptForStartingSeasonAndEpisode(string seriesTitle, string discName)
     {
         _promptService.DisplayHeader("AUTOMATIC MODE - Season/Episode Information Needed");
-        
-        Console.WriteLine($"Series: {seriesTitle}");
-        Console.WriteLine($"Disc: {discName}");
-        Console.WriteLine();
-        Console.WriteLine("This disc hasn't been processed before and the season/episode");
-        Console.WriteLine("information cannot be determined automatically.");
-        Console.WriteLine();
+
+        AnsiConsole.MarkupLine($"[dim]Series:[/] [white]{Markup.Escape(seriesTitle)}[/]");
+        AnsiConsole.MarkupLine($"[dim]Disc:[/] [white]{Markup.Escape(discName)}[/]");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[yellow]This disc hasn't been processed before and the season/episode[/]");
+        AnsiConsole.MarkupLine("[yellow]information cannot be determined automatically.[/]");
+        AnsiConsole.WriteLine();
 
         var seasonResult = _promptService.NumberPrompt(new NumberPromptOptions
         {
@@ -534,10 +568,10 @@ public class ConsoleInteractionService
 
         int episode = episodeResult.Success ? episodeResult.Value : 1;
 
-        Console.WriteLine($"Starting with Season {season}, Episode {episode}");
-        
+        AnsiConsole.MarkupLine($"[green]Starting with Season {season}, Episode {episode}[/]");
+
         _logger.LogInformation($"User specified starting point for {seriesTitle}: S{season:D2}E{episode:D2}");
-        
+
         return (season, episode);
     }
 
@@ -568,9 +602,9 @@ public class ConsoleInteractionService
             _logger.LogWarning("Invalid minimum size entered, using default 0.5 GB");
             minSize = 0.5;
         }
-        
-        Console.WriteLine($"Minimum episode size set to {minSize} GB");
-        
+
+        AnsiConsole.MarkupLine($"[green]Minimum episode size set to {minSize} GB[/]");
+
         // Get maximum size
         var maxSizeResult = _promptService.TextPrompt(new TextPromptOptions
         {
@@ -587,7 +621,7 @@ public class ConsoleInteractionService
             maxSize = Math.Max(minSize * 2, 10);
         }
 
-        Console.WriteLine($"Maximum episode size set to {maxSize} GB");
+        AnsiConsole.MarkupLine($"[green]Maximum episode size set to {maxSize} GB[/]");
         _logger.LogInformation($"User set episode size range: {minSize} - {maxSize} GB");
         return (minSize, maxSize);
     }
@@ -610,7 +644,7 @@ public class ConsoleInteractionService
             minChapters = 1;
         }
 
-        Console.WriteLine($"Minimum episode chapters set to {minChapters}");
+        AnsiConsole.MarkupLine($"[green]Minimum episode chapters set to {minChapters}[/]");
 
         // Get maximum chapters
         var maxChaptersResult = _promptService.TextPrompt(new TextPromptOptions
@@ -628,7 +662,7 @@ public class ConsoleInteractionService
             maxChapters = Math.Max(minChapters * 2, 50);
         }
 
-        Console.WriteLine($"Maximum episode chapters set to {maxChapters}");
+        AnsiConsole.MarkupLine($"[green]Maximum episode chapters set to {maxChapters}[/]");
         _logger.LogInformation($"User set episode chapter range: {minChapters} - {maxChapters}");
         return (minChapters, maxChapters);
     }
@@ -655,14 +689,14 @@ public class ConsoleInteractionService
 
     public SeriesProfile PromptForModifySeriesProfile(SeriesProfile existingProfile, string discName)
     {
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
         _promptService.DisplayHeader("MODIFY TV SERIES CONFIGURATION");
-        Console.WriteLine($"Series: {existingProfile.SeriesTitle}");
-        Console.WriteLine($"Disc: {discName}");
-        Console.WriteLine();
-        Console.WriteLine("You can modify individual settings or keep the existing values.");
-        Console.WriteLine("For each setting, you'll see the current value and can choose to keep it or change it.");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[dim]Series:[/] [white]{Markup.Escape(existingProfile.SeriesTitle)}[/]");
+        AnsiConsole.MarkupLine($"[dim]Disc:[/] [white]{Markup.Escape(discName)}[/]");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[cyan]You can modify individual settings or keep the existing values.[/]");
+        AnsiConsole.MarkupLine("[dim]For each setting, you'll see the current value and can choose to keep it or change it.[/]");
+        AnsiConsole.WriteLine();
 
         var modifiedProfile = new SeriesProfile
         {
@@ -672,20 +706,16 @@ public class ConsoleInteractionService
         };
 
         // 1. Episode Size Range
-        Console.WriteLine("SETTING 1/6: Episode Size Filtering");
-        Console.WriteLine("------------------------------------");
+        AnsiConsole.Write(new Rule("[yellow]SETTING 1/6: Episode Size Filtering[/]") { Justification = Justify.Left });
         if (existingProfile.MinEpisodeSizeGB.HasValue && existingProfile.MaxEpisodeSizeGB.HasValue)
         {
-            Console.WriteLine($"Current: Custom range {existingProfile.MinEpisodeSizeGB:F1} - {existingProfile.MaxEpisodeSizeGB:F1} GB");
+            AnsiConsole.MarkupLine($"[dim]Current:[/] Custom range [cyan]{existingProfile.MinEpisodeSizeGB:F1} - {existingProfile.MaxEpisodeSizeGB:F1} GB[/]");
         }
         else
         {
-            Console.WriteLine("Current: Using default filtering (global settings)");
+            AnsiConsole.MarkupLine("[dim]Current:[/] Using default filtering (global settings)");
         }
-        Console.WriteLine();
-        Console.WriteLine("1. Keep current episode size settings");
-        Console.WriteLine("2. Change episode size settings");
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
 
         var sizeSettingsResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
         {
@@ -709,16 +739,12 @@ public class ConsoleInteractionService
             modifiedProfile.MinEpisodeSizeGB = minSize;
             modifiedProfile.MaxEpisodeSizeGB = maxSize;
         }
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
 
         // 2. Track Sorting Strategy
-        Console.WriteLine("SETTING 2/6: Track Sorting Method");
-        Console.WriteLine("----------------------------------");
-        Console.WriteLine($"Current: {existingProfile.TrackSortingStrategy}");
-        Console.WriteLine();
-        Console.WriteLine("1. Keep current track sorting method");
-        Console.WriteLine("2. Change track sorting method");
-        Console.WriteLine();
+        AnsiConsole.Write(new Rule("[yellow]SETTING 2/6: Track Sorting Method[/]") { Justification = Justify.Left });
+        AnsiConsole.MarkupLine($"[dim]Current:[/] [cyan]{existingProfile.TrackSortingStrategy}[/]");
+        AnsiConsole.WriteLine();
 
         var trackSortingResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
         {
@@ -739,16 +765,12 @@ public class ConsoleInteractionService
         {
             modifiedProfile.TrackSortingStrategy = PromptForTrackSortingStrategy(existingProfile.SeriesTitle);
         }
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
 
         // 3. Double Episode Handling
-        Console.WriteLine("SETTING 3/6: Double Episode Detection");
-        Console.WriteLine("--------------------------------------");
-        Console.WriteLine($"Current: {existingProfile.DoubleEpisodeHandling}");
-        Console.WriteLine();
-        Console.WriteLine("1. Keep current double episode handling");
-        Console.WriteLine("2. Change double episode handling");
-        Console.WriteLine();
+        AnsiConsole.Write(new Rule("[yellow]SETTING 3/6: Double Episode Detection[/]") { Justification = Justify.Left });
+        AnsiConsole.MarkupLine($"[dim]Current:[/] [cyan]{existingProfile.DoubleEpisodeHandling}[/]");
+        AnsiConsole.WriteLine();
 
         var doubleEpisodeKeepResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
         {
@@ -767,7 +789,7 @@ public class ConsoleInteractionService
         }
         else
         {
-            Console.WriteLine();
+            AnsiConsole.WriteLine();
             var newDoubleHandlingResult = _promptService.SelectPrompt<DoubleEpisodeHandling>(new SelectPromptOptions
             {
                 Question = "How should long episodes be handled?",
@@ -790,23 +812,19 @@ public class ConsoleInteractionService
                 _logger.LogInformation($"User cancelled double episode change, keeping existing setting for {existingProfile.SeriesTitle}");
             }
         }
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
 
         // 4. Starting Season/Episode (if not clear from disc name)
-        Console.WriteLine("SETTING 4/6: Starting Position");
-        Console.WriteLine("-------------------------------");
+        AnsiConsole.Write(new Rule("[yellow]SETTING 4/6: Starting Position[/]") { Justification = Justify.Left });
         if (existingProfile.DefaultStartingSeason.HasValue && existingProfile.DefaultStartingEpisode.HasValue)
         {
-            Console.WriteLine($"Current: Default starting position S{existingProfile.DefaultStartingSeason:D2}E{existingProfile.DefaultStartingEpisode:D2}");
+            AnsiConsole.MarkupLine($"[dim]Current:[/] Default starting position [cyan]S{existingProfile.DefaultStartingSeason:D2}E{existingProfile.DefaultStartingEpisode:D2}[/]");
         }
         else
         {
-            Console.WriteLine("Current: Extract from disc name automatically");
+            AnsiConsole.MarkupLine("[dim]Current:[/] Extract from disc name automatically");
         }
-        Console.WriteLine();
-        Console.WriteLine("1. Keep current starting position settings");
-        Console.WriteLine("2. Change starting position settings");
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
 
         var startingPositionResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
         {
@@ -826,7 +844,7 @@ public class ConsoleInteractionService
         }
         else
         {
-            if (!discName.Contains("S", StringComparison.OrdinalIgnoreCase) || 
+            if (!discName.Contains("S", StringComparison.OrdinalIgnoreCase) ||
                 !discName.Contains("D", StringComparison.OrdinalIgnoreCase))
             {
                 var (season, episode) = PromptForStartingSeasonAndEpisode(existingProfile.SeriesTitle, discName);
@@ -835,21 +853,17 @@ public class ConsoleInteractionService
             }
             else
             {
-                Console.WriteLine("Season/Episode information will be extracted from disc name.");
+                AnsiConsole.MarkupLine("[dim]Season/Episode information will be extracted from disc name.[/]");
                 modifiedProfile.DefaultStartingSeason = null;
                 modifiedProfile.DefaultStartingEpisode = null;
             }
         }
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
 
         // 5. Auto-increment mode
-        Console.WriteLine("SETTING 5/6: Multi-Disc Handling");
-        Console.WriteLine("---------------------------------");
-        Console.WriteLine($"Current: Auto-increment {(existingProfile.UseAutoIncrement ? "Enabled" : "Disabled")}");
-        Console.WriteLine();
-        Console.WriteLine("1. Keep current auto-increment setting");
-        Console.WriteLine("2. Change auto-increment setting");
-        Console.WriteLine();
+        AnsiConsole.Write(new Rule("[yellow]SETTING 5/6: Multi-Disc Handling[/]") { Justification = Justify.Left });
+        AnsiConsole.MarkupLine($"[dim]Current:[/] Auto-increment [cyan]{(existingProfile.UseAutoIncrement ? "Enabled" : "Disabled")}[/]");
+        AnsiConsole.WriteLine();
 
         var autoIncrementKeepResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
         {
@@ -868,10 +882,10 @@ public class ConsoleInteractionService
         }
         else
         {
-            Console.WriteLine();
-            Console.WriteLine("When processing multiple discs with similar names, should episode");
-            Console.WriteLine("numbers automatically continue from where the previous disc ended?");
-            Console.WriteLine();
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[dim]When processing multiple discs with similar names, should episode[/]");
+            AnsiConsole.MarkupLine("[dim]numbers automatically continue from where the previous disc ended?[/]");
+            AnsiConsole.WriteLine();
 
             var newAutoIncrementResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
             {
@@ -894,16 +908,12 @@ public class ConsoleInteractionService
                 _logger.LogInformation($"User cancelled auto-increment change, keeping existing setting for {existingProfile.SeriesTitle}");
             }
         }
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
 
         // 6. Confirmation preference
-        Console.WriteLine("SETTING 6/6: Pre-Rip Confirmation");
-        Console.WriteLine("----------------------------------");
-        Console.WriteLine($"Current: Pre-rip confirmation {(existingProfile.AlwaysSkipConfirmation ? "Disabled (auto-proceed)" : "Enabled (show confirmation)")}");
-        Console.WriteLine();
-        Console.WriteLine("1. Keep current confirmation preference");
-        Console.WriteLine("2. Change confirmation preference");
-        Console.WriteLine();
+        AnsiConsole.Write(new Rule("[yellow]SETTING 6/6: Pre-Rip Confirmation[/]") { Justification = Justify.Left });
+        AnsiConsole.MarkupLine($"[dim]Current:[/] Pre-rip confirmation [cyan]{(existingProfile.AlwaysSkipConfirmation ? "Disabled (auto-proceed)" : "Enabled (show confirmation)")}[/]");
+        AnsiConsole.WriteLine();
 
         var confirmationKeepResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
         {
@@ -922,10 +932,10 @@ public class ConsoleInteractionService
         }
         else
         {
-            Console.WriteLine();
-            Console.WriteLine("Would you like to review rip settings before each disc, or proceed");
-            Console.WriteLine("automatically with the configured settings?");
-            Console.WriteLine();
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[dim]Would you like to review rip settings before each disc, or proceed[/]");
+            AnsiConsole.MarkupLine("[dim]automatically with the configured settings?[/]");
+            AnsiConsole.WriteLine();
 
             var newConfirmationResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
             {
@@ -949,7 +959,7 @@ public class ConsoleInteractionService
             }
         }
 
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
         _promptService.DisplayHeader($"Settings modification complete! Updated settings will be used for this disc and saved for future discs from {existingProfile.SeriesTitle}.");
 
         return modifiedProfile;
@@ -957,26 +967,22 @@ public class ConsoleInteractionService
 
     public async Task<int> ConfirmOrSelectEpisodeAsync(string seriesTitle, int season, int suggestedEpisode, string episodeTitle, string trackName, List<int> availableEpisodes, IEnhancedOmdbService enhancedOmdbService, List<AkTitle>? allTracks = null)
     {
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
         _promptService.DisplayHeader("EPISODE CONFIRMATION");
-        Console.WriteLine($"Series: {seriesTitle}");
-        Console.WriteLine($"Track: {trackName}");
-        Console.WriteLine();
-        
+        AnsiConsole.MarkupLine($"[dim]Series:[/] [white]{Markup.Escape(seriesTitle)}[/]");
+        AnsiConsole.MarkupLine($"[dim]Track:[/] [white]{Markup.Escape(trackName)}[/]");
+        AnsiConsole.WriteLine();
+
         if (!string.IsNullOrEmpty(episodeTitle))
         {
-            Console.WriteLine($"Suggested: Episode {suggestedEpisode} - \"{episodeTitle}\"");
+            AnsiConsole.MarkupLine($"[cyan]Suggested:[/] Episode {suggestedEpisode} - [white]\"{Markup.Escape(episodeTitle)}\"[/]");
         }
         else
         {
-            Console.WriteLine($"Suggested: Episode {suggestedEpisode} (no title available)");
+            AnsiConsole.MarkupLine($"[cyan]Suggested:[/] Episode {suggestedEpisode} [dim](no title available)[/]");
         }
-        
-        Console.WriteLine();
-        Console.WriteLine("Options:");
-        Console.WriteLine("1. Confirm - This is the correct episode");
-        Console.WriteLine("2. Select different episode");
-        Console.WriteLine();
+
+        AnsiConsole.WriteLine();
 
         var confirmResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
         {
@@ -999,19 +1005,21 @@ public class ConsoleInteractionService
             _logger.LogInformation($"User confirmed episode {suggestedEpisode} for track {trackName}");
             return suggestedEpisode;
         }
-        
+
         return await SelectFromAvailableEpisodesAsync(seriesTitle, season, trackName, availableEpisodes, enhancedOmdbService, allTracks);
     }
 
     public async Task<int> SelectFromAvailableEpisodesAsync(string seriesTitle, int season, string trackName, List<int> availableEpisodes, IEnhancedOmdbService enhancedOmdbService, List<AkTitle>? allTracks = null)
     {
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
         _promptService.DisplayHeader("SELECT EPISODE");
-        Console.WriteLine($"Series: {seriesTitle}");
-        Console.WriteLine($"Track: {trackName}");
-        Console.WriteLine();
-        Console.WriteLine("Available episodes:");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[dim]Series:[/] [white]{Markup.Escape(seriesTitle)}[/]");
+        AnsiConsole.MarkupLine($"[dim]Track:[/] [white]{Markup.Escape(trackName)}[/]");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[cyan]Available episodes:[/]");
+        AnsiConsole.WriteLine();
+
+        var choices = new List<PromptChoice>();
 
         // Display available episodes with titles and MPLS info when available
         for (int i = 0; i < availableEpisodes.Count; i++)
@@ -1019,58 +1027,14 @@ public class ConsoleInteractionService
             var episodeNumber = availableEpisodes[i];
             string episodeTitle = "";
             string mplsInfo = "";
-            
-            try
-            {
-                var episodeInfo = await enhancedOmdbService.GetEpisodeInfoAsync(
-                    seriesTitle, 
-                    season, 
-                    episodeNumber);
-                
-                if (episodeInfo != null && !string.IsNullOrEmpty(episodeInfo.Title))
-                {
-                    episodeTitle = $" - \"{episodeInfo.Title}\"";
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, $"Could not fetch title for episode {episodeNumber}");
-            }
-            
-            // Try to find corresponding track with MPLS filename
-            if (allTracks != null)
-            {
-                // Calculate the track index that would correspond to this episode
-                // This assumes episodes are in order starting from the first available episode
-                var trackIndex = episodeNumber - availableEpisodes.Min();
-                if (trackIndex >= 0 && trackIndex < allTracks.Count)
-                {
-                    var correspondingTrack = allTracks[trackIndex];
-                    if (!string.IsNullOrEmpty(correspondingTrack.SourceFileName))
-                    {
-                        mplsInfo = $" (MPLS: {correspondingTrack.SourceFileName})";
-                    }
-                }
-            }
-            
-            Console.WriteLine($"{i + 1}. Episode {episodeNumber}{episodeTitle}{mplsInfo}");
-        }
-        Console.WriteLine();
 
-        var choices = new List<PromptChoice>();
-        for (int i = 0; i < availableEpisodes.Count; i++)
-        {
-            var episodeNumber = availableEpisodes[i];
-            string episodeTitle = "";
-            string mplsInfo = "";
-            
             try
             {
                 var episodeInfo = await enhancedOmdbService.GetEpisodeInfoAsync(
-                    seriesTitle, 
-                    season, 
+                    seriesTitle,
+                    season,
                     episodeNumber);
-                
+
                 if (episodeInfo != null && !string.IsNullOrEmpty(episodeInfo.Title))
                 {
                     episodeTitle = $" - \"{episodeInfo.Title}\"";
@@ -1080,7 +1044,7 @@ public class ConsoleInteractionService
             {
                 _logger.LogWarning(ex, $"Could not fetch title for episode {episodeNumber}");
             }
-            
+
             // Try to find corresponding track with MPLS filename
             if (allTracks != null)
             {
@@ -1096,9 +1060,12 @@ public class ConsoleInteractionService
                     }
                 }
             }
-            
-            choices.Add(new(episodeNumber.ToString(), $"Episode {episodeNumber}{episodeTitle}{mplsInfo}", episodeNumber));
+
+            var displayText = $"Episode {episodeNumber}{episodeTitle}{mplsInfo}";
+            AnsiConsole.MarkupLine($"  [dim]{i + 1}.[/] {Markup.Escape(displayText)}");
+            choices.Add(new(episodeNumber.ToString(), displayText, episodeNumber));
         }
+        AnsiConsole.WriteLine();
 
         var selectionResult = _promptService.SelectPrompt<int>(new SelectPromptOptions
         {
@@ -1118,47 +1085,46 @@ public class ConsoleInteractionService
 
     public RipConfirmationResult ConfirmRipSettings(RipConfirmation confirmation)
     {
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
         _promptService.DisplayHeader("PRE-RIP CONFIRMATION");
-        Console.WriteLine($"Media: {confirmation.MediaTitle}");
-        Console.WriteLine($"Type: {confirmation.MediaType}");
-        Console.WriteLine($"Tracks to rip: {confirmation.TracksToRip} tracks");
-        
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("[cyan]Setting[/]")
+            .AddColumn("[white]Value[/]");
+
+        table.AddRow("Media", Markup.Escape(confirmation.MediaTitle));
+        table.AddRow("Type", confirmation.MediaType);
+        table.AddRow("Tracks to rip", $"{confirmation.TracksToRip} tracks");
+
         if (confirmation.MediaType.Equals("TV Series", StringComparison.OrdinalIgnoreCase))
         {
-            Console.WriteLine($"Episode filter: {confirmation.MinSizeGB:F1} - {confirmation.MaxSizeGB:F1} GB");
-            Console.WriteLine($"Chapter filter: {confirmation.MinChapters} - {confirmation.MaxChapters} chapters");
-            Console.WriteLine($"Track sorting: {confirmation.SortingMethod}");
-            Console.WriteLine($"Starting at: {confirmation.StartingPosition}");
-            Console.WriteLine($"Double episodes: {confirmation.DoubleEpisodeHandling}");
+            table.AddRow("Episode filter", $"{confirmation.MinSizeGB:F1} - {confirmation.MaxSizeGB:F1} GB");
+            table.AddRow("Chapter filter", $"{confirmation.MinChapters} - {confirmation.MaxChapters} chapters");
+            table.AddRow("Track sorting", confirmation.SortingMethod);
+            table.AddRow("Starting at", confirmation.StartingPosition);
+            table.AddRow("Double episodes", confirmation.DoubleEpisodeHandling);
         }
         else
         {
-            Console.WriteLine($"Selected track size: {confirmation.MinSizeGB:F1} GB");
-            Console.WriteLine($"Chapter filter: {confirmation.MinChapters} - {confirmation.MaxChapters} chapters");
+            table.AddRow("Selected track size", $"{confirmation.MinSizeGB:F1} GB");
+            table.AddRow("Chapter filter", $"{confirmation.MinChapters} - {confirmation.MaxChapters} chapters");
         }
-        
-        Console.WriteLine();
-        Console.WriteLine("Selected tracks:");
+
+        AnsiConsole.Write(table);
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[cyan]Selected tracks:[/]");
+
         foreach (var track in confirmation.SelectedTracks.Take(5))
         {
-            Console.WriteLine($"  - {track.Name} ({track.SizeInGB:F2} GB, {track.LengthInSeconds / 60.0:F1} min, {track.ChapterCount} chapters)");
+            AnsiConsole.MarkupLine($"  [dim]-[/] {Markup.Escape(track.Name)} [dim]({track.SizeInGB:F2} GB, {track.LengthInSeconds / 60.0:F1} min, {track.ChapterCount} chapters)[/]");
         }
         if (confirmation.SelectedTracks.Count > 5)
         {
-            Console.WriteLine($"  ... and {confirmation.SelectedTracks.Count - 5} more tracks");
+            AnsiConsole.MarkupLine($"  [dim]... and {confirmation.SelectedTracks.Count - 5} more tracks[/]");
         }
-        
-        Console.WriteLine();
-        Console.WriteLine("Options:");
-        Console.WriteLine("1. Proceed with ripping");
-        Console.WriteLine("2. Modify settings");
-        Console.WriteLine("3. Skip this disc");
-        if (confirmation.MediaType.Equals("TV Series", StringComparison.OrdinalIgnoreCase))
-        {
-            Console.WriteLine("4. Proceed and don't ask again for this series");
-        }
-        Console.WriteLine();
+
+        AnsiConsole.WriteLine();
 
         var choices = new List<PromptChoice>
         {
@@ -1166,7 +1132,7 @@ public class ConsoleInteractionService
             new("modify", "Modify settings", RipConfirmationResult.ModifySettings),
             new("skip", "Skip this disc", RipConfirmationResult.Skip)
         };
-        
+
         if (confirmation.MediaType.Equals("TV Series", StringComparison.OrdinalIgnoreCase))
         {
             choices.Add(new("proceed_no_ask", "Proceed and don't ask again for this series", RipConfirmationResult.ProceedAndDontAskAgain));
@@ -1191,21 +1157,21 @@ public class ConsoleInteractionService
     public PromptResult<bool> PromptForSeasonMismatchResolution(string seriesTitle, string discName, int currentSeason, int discSeason)
     {
         _promptService.DisplayHeader("SEASON MISMATCH DETECTED", '!');
-        
+
         // Display warning before the details
         _promptService.DisplayWarning($"Season mismatch detected for {seriesTitle}!");
-        Console.WriteLine();
-        
-        Console.WriteLine($"Series: {seriesTitle}");
-        Console.WriteLine($"Disc: {discName}");
-        Console.WriteLine();
-        Console.WriteLine($"Current series state shows Season {currentSeason}");
-        Console.WriteLine($"This disc appears to be Season {discSeason}");
-        Console.WriteLine();
-        Console.WriteLine("This might indicate you're starting a new season or the disc label");
-        Console.WriteLine("has been parsed incorrectly.");
-        Console.WriteLine();
-        
+        AnsiConsole.WriteLine();
+
+        AnsiConsole.MarkupLine($"[dim]Series:[/] [white]{Markup.Escape(seriesTitle)}[/]");
+        AnsiConsole.MarkupLine($"[dim]Disc:[/] [white]{Markup.Escape(discName)}[/]");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine($"[dim]Current series state shows[/] [cyan]Season {currentSeason}[/]");
+        AnsiConsole.MarkupLine($"[dim]This disc appears to be[/] [yellow]Season {discSeason}[/]");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[dim]This might indicate you're starting a new season or the disc label[/]");
+        AnsiConsole.MarkupLine("[dim]has been parsed incorrectly.[/]");
+        AnsiConsole.WriteLine();
+
         var result = _promptService.SelectPrompt<bool>(new SelectPromptOptions
         {
             Question = "What would you like to do?",

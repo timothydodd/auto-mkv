@@ -7,6 +7,7 @@ using AutoMk.Interfaces;
 using AutoMk.Models;
 using AutoMk.Utilities;
 using Microsoft.Extensions.Logging;
+using Spectre.Console;
 
 namespace AutoMk.Services;
 
@@ -25,50 +26,58 @@ public class ManualModeService
 
     public async Task<MediaIdentity?> IdentifyMediaWithConfirmationAsync(string discName)
     {
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
         _promptService.DisplayHeader($"MANUAL MODE - Media Identification for disc: {discName}");
 
         // First, try automatic identification
         var searchTitle = CleanDiscNameForSearch(discName);
-        Console.WriteLine($"Attempting automatic identification for: '{searchTitle}'");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[dim]Attempting automatic identification for:[/] [white]'{Markup.Escape(searchTitle)}'[/]");
+        AnsiConsole.WriteLine();
 
         // Search for both movie and series
         var seriesTask = _omdbClient.GetSeries(searchTitle);
         var movieTask = _omdbClient.GetMovie(searchTitle, null);
-        
+
         await Task.WhenAll(seriesTask, movieTask);
-        
+
         var seriesResult = await seriesTask;
         var movieResult = await movieTask;
-        
+
         // Check if we found results
         bool foundSeries = seriesResult.IsValidOmdbResponse();
         bool foundMovie = movieResult.IsValidOmdbResponse();
 
         if (foundSeries || foundMovie)
         {
-            Console.WriteLine("Automatic identification found the following results:");
-            Console.WriteLine();
+            AnsiConsole.MarkupLine("[green]Automatic identification found the following results:[/]");
+            AnsiConsole.WriteLine();
 
             if (foundMovie)
             {
-                Console.WriteLine($"MOVIE: {movieResult.Title} ({movieResult.Year})");
-                if (!string.IsNullOrEmpty(movieResult.Plot))
+                var moviePanel = new Panel(
+                    new Markup($"[white]{Markup.Escape(movieResult.Title ?? "")}[/] [dim]({Markup.Escape(movieResult.Year ?? "")})[/]\n\n" +
+                              $"[dim]{Markup.Escape(movieResult.Plot ?? "")}[/]"))
                 {
-                    Console.WriteLine($"   Plot: {movieResult.Plot}");
-                }
-                Console.WriteLine();
+                    Header = new PanelHeader("[yellow]MOVIE[/]"),
+                    Border = BoxBorder.Rounded,
+                    BorderStyle = new Style(Color.Yellow)
+                };
+                AnsiConsole.Write(moviePanel);
+                AnsiConsole.WriteLine();
             }
 
             if (foundSeries)
             {
-                Console.WriteLine($"TV SERIES: {seriesResult.Title} ({seriesResult.Year})");
-                if (!string.IsNullOrEmpty(seriesResult.Plot))
+                var seriesPanel = new Panel(
+                    new Markup($"[white]{Markup.Escape(seriesResult.Title ?? "")}[/] [dim]({Markup.Escape(seriesResult.Year ?? "")})[/]\n\n" +
+                              $"[dim]{Markup.Escape(seriesResult.Plot ?? "")}[/]"))
                 {
-                    Console.WriteLine($"   Plot: {seriesResult.Plot}");
-                }
-                Console.WriteLine();
+                    Header = new PanelHeader("[blue]TV SERIES[/]"),
+                    Border = BoxBorder.Rounded,
+                    BorderStyle = new Style(Color.Blue)
+                };
+                AnsiConsole.Write(seriesPanel);
+                AnsiConsole.WriteLine();
             }
 
             // Let user choose
@@ -91,7 +100,7 @@ public class ManualModeService
         }
 
         // No automatic results found - let user search manually
-        Console.WriteLine("No automatic results found. Please search manually.");
+        AnsiConsole.MarkupLine("[yellow]No automatic results found. Please search manually.[/]");
         return await PerformManualSearchAsync();
     }
 
@@ -117,79 +126,93 @@ public class ManualModeService
 
     public List<AkTitle> SelectTracksToRip(List<AkTitle> availableTitles)
     {
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
         _promptService.DisplayHeader("MANUAL MODE - Track Selection");
-        Console.WriteLine("Available tracks on disc:");
-        Console.WriteLine();
+
+        // Display available tracks in a table
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .BorderColor(Color.Grey)
+            .AddColumn(new TableColumn("[white]#[/]").Centered())
+            .AddColumn(new TableColumn("[white]Track ID[/]").Centered())
+            .AddColumn(new TableColumn("[white]Name[/]"))
+            .AddColumn(new TableColumn("[white]Duration[/]").Centered())
+            .AddColumn(new TableColumn("[white]Size[/]").RightAligned());
 
         for (int i = 0; i < availableTitles.Count; i++)
         {
             var title = availableTitles[i];
-            Console.WriteLine($"{i + 1}. Track {title.Id}: {title.Name}");
-            Console.WriteLine($"   Duration: {title.Length}");
-            Console.WriteLine($"   Size: {title.Size} ({title.SizeInGB:F2} GB)");
-            Console.WriteLine();
+            table.AddRow(
+                $"[cyan]{i + 1}[/]",
+                title.Id?.ToString() ?? "-",
+                Markup.Escape(title.Name ?? "Unknown"),
+                title.Length ?? "-",
+                $"{title.SizeInGB:F2} GB"
+            );
         }
 
-        var trackSelectionResult = _promptService.TextPrompt(new TextPromptOptions
-        {
-            Question = "Select tracks to rip (enter numbers separated by commas, or 'all' for all tracks):",
-            Required = true,
-            PromptText = "Selection",
-            ValidationPattern = @"^(all|\d+(,\s*\d+)*)$",
-            ValidationMessage = "Please enter track numbers separated by commas (e.g., 1,3,5) or 'all'"
-        });
-        
-        if (!trackSelectionResult.Success || trackSelectionResult.Cancelled)
-        {
-            _logger.LogInformation("User cancelled track selection");
-            return new List<AkTitle>();
-        }
-        
-        var input = trackSelectionResult.Value.Trim();
-        
-        if (input.Equals("all", StringComparison.OrdinalIgnoreCase))
-        {
-            _logger.LogInformation("User selected all tracks");
-            return availableTitles;
-        }
-        
-        var selectedTracks = new List<AkTitle>();
-        var parts = input.Split(',', StringSplitOptions.RemoveEmptyEntries);
-        
-        foreach (var part in parts)
-        {
-            if (int.TryParse(part.Trim(), out int trackNumber) && 
-                trackNumber >= 1 && trackNumber <= availableTitles.Count)
+        AnsiConsole.Write(table);
+        AnsiConsole.WriteLine();
+
+        // Use MultiSelectionPrompt for track selection with arrow keys
+        var choices = availableTitles.Select((t, i) => $"{i + 1}. Track {t.Id}: {t.Name} ({t.SizeInGB:F2} GB)").ToList();
+
+        var selectedChoices = AnsiConsole.Prompt(
+            new MultiSelectionPrompt<string>()
+                .Title("[white]Select tracks to rip:[/]")
+                .PageSize(15)
+                .HighlightStyle(new Style(Color.Cyan1))
+                .InstructionsText("[dim](Press [blue]<space>[/] to toggle, [green]<enter>[/] to accept)[/]")
+                .AddChoiceGroup("[green]Select All[/]", choices)
+                .NotRequired());
+
+        // Filter out the "Select All" group header if selected
+        var selectedIndices = selectedChoices
+            .Where(c => c != "[green]Select All[/]")
+            .Select(c =>
             {
-                selectedTracks.Add(availableTitles[trackNumber - 1]);
-            }
-        }
-        
-        Console.WriteLine($"Selected {selectedTracks.Count} track(s):");
-        foreach (var track in selectedTracks)
+                var numStr = c.Split('.')[0];
+                return int.TryParse(numStr, out var num) ? num - 1 : -1;
+            })
+            .Where(i => i >= 0 && i < availableTitles.Count)
+            .ToList();
+
+        var selectedTracks = selectedIndices.Select(i => availableTitles[i]).ToList();
+
+        if (selectedTracks.Count > 0)
         {
-            Console.WriteLine($"  - Track {track.Id}: {track.Name} ({track.SizeInGB:F2} GB)");
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine($"[green]Selected {selectedTracks.Count} track(s):[/]");
+            foreach (var track in selectedTracks)
+            {
+                AnsiConsole.MarkupLine($"  [dim]•[/] Track {track.Id}: [white]{Markup.Escape(track.Name ?? "Unknown")}[/] [dim]({track.SizeInGB:F2} GB)[/]");
+            }
+            AnsiConsole.WriteLine();
         }
-        Console.WriteLine();
-        
+
         _logger.LogInformation($"User selected {selectedTracks.Count} tracks");
         return selectedTracks;
     }
 
     public Dictionary<AkTitle, EpisodeInfo> MapTracksToEpisodes(List<AkTitle> selectedTracks, string seriesTitle)
     {
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
         _promptService.DisplayHeader($"MANUAL MODE - Episode Mapping for {seriesTitle}");
-        Console.WriteLine("Map each track to season and episode information:");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine("[dim]Map each track to season and episode information:[/]");
+        AnsiConsole.WriteLine();
 
         var trackMapping = new Dictionary<AkTitle, EpisodeInfo>();
 
         foreach (var track in selectedTracks)
         {
-            Console.WriteLine($"Track {track.Id}: {track.Name} ({track.SizeInGB:F2} GB)");
-            
+            var trackPanel = new Panel($"[white]{Markup.Escape(track.Name ?? "Unknown")}[/] [dim]({track.SizeInGB:F2} GB)[/]")
+            {
+                Header = new PanelHeader($"[cyan]Track {track.Id}[/]"),
+                Border = BoxBorder.Rounded,
+                BorderStyle = new Style(Color.Cyan1)
+            };
+            AnsiConsole.Write(trackPanel);
+
             var seasonResult = _promptService.NumberPrompt(new NumberPromptOptions
             {
                 Question = "Season number:",
@@ -198,7 +221,7 @@ public class ManualModeService
                 MinValue = 1,
                 MaxValue = 50
             });
-            
+
             var episodeResult = _promptService.NumberPrompt(new NumberPromptOptions
             {
                 Question = "Episode number:",
@@ -207,18 +230,18 @@ public class ManualModeService
                 MinValue = 1,
                 MaxValue = 999
             });
-            
+
             int season = seasonResult.Success ? seasonResult.Value : 1;
             int episode = episodeResult.Success ? episodeResult.Value : 1;
-            
+
             trackMapping[track] = new EpisodeInfo
             {
                 Season = season,
                 Episode = episode
             };
-            
-            Console.WriteLine($"  Mapped to S{season:D2}E{episode:D2}");
-            Console.WriteLine();
+
+            AnsiConsole.MarkupLine($"  [green]Mapped to[/] [yellow]S{season:D2}E{episode:D2}[/]");
+            AnsiConsole.WriteLine();
         }
 
         return trackMapping;
@@ -256,8 +279,8 @@ public class ManualModeService
 
     private async Task<MediaIdentity?> ConfirmMovieSelection(ConfirmationInfo movieResult)
     {
-        Console.WriteLine($"Found movie: {movieResult.Title} ({movieResult.Year})");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[green]Found movie:[/] [white]{Markup.Escape(movieResult.Title ?? "")}[/] [dim]({Markup.Escape(movieResult.Year ?? "")})[/]");
+        AnsiConsole.WriteLine();
 
         var result = _promptService.SelectPrompt(new SelectPromptOptions
         {
@@ -299,8 +322,8 @@ public class ManualModeService
 
     private async Task<MediaIdentity?> ConfirmSeriesSelection(ConfirmationInfo seriesResult)
     {
-        Console.WriteLine($"Found TV series: {seriesResult.Title} ({seriesResult.Year})");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[green]Found TV series:[/] [white]{Markup.Escape(seriesResult.Title ?? "")}[/] [dim]({Markup.Escape(seriesResult.Year ?? "")})[/]");
+        AnsiConsole.WriteLine();
 
         var result = _promptService.SelectPrompt(new SelectPromptOptions
         {
@@ -381,7 +404,7 @@ public class ManualModeService
 
         int? year = yearResult.Success ? yearResult.Value : null;
         
-        Console.WriteLine($"Searching for {(isMovie ? "movie" : "TV series")}: '{titleResult.Value}'{(year.HasValue ? $" ({year})" : "")}");
+        AnsiConsole.MarkupLine($"[dim]Searching for {(isMovie ? "movie" : "TV series")}:[/] [white]'{Markup.Escape(titleResult.Value)}'[/]{(year.HasValue ? $" [dim]({year})[/]" : "")}");
 
         try
         {
@@ -399,18 +422,22 @@ public class ManualModeService
 
             if (result.IsValidOmdbResponse())
             {
-                Console.WriteLine($"Found: {result.Title} ({result.Year})");
-                if (!string.IsNullOrEmpty(result.Plot))
+                var resultPanel = new Panel(
+                    new Markup($"[white]{Markup.Escape(result.Title ?? "")}[/] [dim]({Markup.Escape(result.Year ?? "")})[/]\n\n" +
+                              $"[dim]{Markup.Escape(result.Plot ?? "")}[/]"))
                 {
-                    Console.WriteLine($"Plot: {result.Plot}");
-                }
-                
+                    Header = new PanelHeader("[green]Found[/]"),
+                    Border = BoxBorder.Rounded,
+                    BorderStyle = new Style(Color.Green)
+                };
+                AnsiConsole.Write(resultPanel);
+
                 var confirmResult = _promptService.ConfirmPrompt(new ConfirmPromptOptions
                 {
                     Question = "Is this correct?",
                     DefaultValue = false
                 });
-                
+
                 if (confirmResult.Success && confirmResult.Value)
                 {
                     _logger.LogInformation($"User confirmed manual search result: {result.Title}");
@@ -419,13 +446,13 @@ public class ManualModeService
             }
             else
             {
-                Console.WriteLine("No results found for that search.");
+                AnsiConsole.MarkupLine("[yellow]No results found for that search.[/]");
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during manual search");
-            Console.WriteLine($"Error during search: {ex.Message}");
+            AnsiConsole.MarkupLine($"[red]Error during search:[/] {Markup.Escape(ex.Message)}");
         }
 
         return null;

@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using Spectre.Console;
 
 namespace AutoMk
 {
@@ -52,13 +53,13 @@ namespace AutoMk
 
                 if (ejectProcess.ExitCode == 0)
                 {
-                    Console.WriteLine("CD/DVD drive tray opened successfully.");
+                    AnsiConsole.MarkupLine("[green]CD/DVD drive tray opened successfully.[/]");
                 }
                 else
                 {
                     //open drive
                     Thread.Sleep(1000);
-                    Console.WriteLine("Failed to open CD/DVD drive tray.");
+                    AnsiConsole.MarkupLine("[yellow]Failed to open CD/DVD drive tray.[/]");
                 }
 
                 // Break if we've exceeded max attempts to prevent infinite loop
@@ -94,14 +95,28 @@ namespace AutoMk
 
         public List<DriveInfo> PrintDrives()
         {
-            Console.WriteLine("Drive List");
             List<DriveInfo> drives = GetDrives.ToList();
-            foreach (
-                DriveInfo drive in
-                GetDrives)
+
+            var table = new Table()
+                .Border(TableBorder.Rounded)
+                .BorderColor(Color.Cyan1)
+                .Title("[cyan]Drive List[/]")
+                .AddColumn(new TableColumn("[white]Drive[/]").Centered())
+                .AddColumn(new TableColumn("[white]Type[/]").Centered())
+                .AddColumn(new TableColumn("[white]Status[/]").Centered());
+
+            foreach (DriveInfo drive in drives)
             {
-                Console.WriteLine("{0} type:{1} ready:{2}", drive.Name, drive.DriveType, drive.IsReady);
+                var statusColor = drive.IsReady ? "green" : "dim";
+                var statusText = drive.IsReady ? "Ready" : "Not Ready";
+                table.AddRow(
+                    $"[white]{Markup.Escape(drive.Name)}[/]",
+                    $"[dim]{drive.DriveType}[/]",
+                    $"[{statusColor}]{statusText}[/]"
+                );
             }
+
+            AnsiConsole.Write(table);
             return drives;
         }
 

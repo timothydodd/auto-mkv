@@ -7,6 +7,7 @@ using AutoMk.Interfaces;
 using AutoMk.Models;
 using AutoMk.Utilities;
 using Microsoft.Extensions.Logging;
+using Spectre.Console;
 
 namespace AutoMk.Services;
 
@@ -29,8 +30,8 @@ public class MediaSelectionService : IMediaSelectionService
     public async Task<OptimizedSearchResult?> InteractiveMediaSearchAsync(string originalTitle, string discName)
     {
         _promptService.DisplayHeader($"Unable to automatically identify media for disc: {discName}");
-        Console.WriteLine($"Original search: {originalTitle}");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[dim]Original search:[/] [white]{Markup.Escape(originalTitle)}[/]");
+        AnsiConsole.WriteLine();
 
         while (true)
         {
@@ -85,15 +86,22 @@ public class MediaSelectionService : IMediaSelectionService
     public bool ConfirmMediaIdentification(ConfirmationInfo mediaData, string discName)
     {
         _promptService.DisplayHeader("AUTOMATIC MODE - Media Identification Confirmation");
-        
-        Console.WriteLine($"Disc: {discName}");
-        Console.WriteLine($"Identified as: {mediaData.Title} ({mediaData.Year})");
-        Console.WriteLine($"Type: {mediaData.Type?.ToUpperInvariant()}");
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("Property")
+            .AddColumn("Value");
+
+        table.AddRow("[dim]Disc[/]", Markup.Escape(discName));
+        table.AddRow("[dim]Identified as[/]", $"[white]{Markup.Escape(mediaData.Title ?? "Unknown")} ({mediaData.Year})[/]");
+        table.AddRow("[dim]Type[/]", $"[cyan]{(mediaData.Type?.ToUpperInvariant() ?? "UNKNOWN")}[/]");
         if (!string.IsNullOrEmpty(mediaData.Plot))
         {
-            Console.WriteLine($"Plot: {mediaData.Plot}");
+            table.AddRow("[dim]Plot[/]", Markup.Escape(mediaData.Plot));
         }
-        Console.WriteLine();
+
+        AnsiConsole.Write(table);
+        AnsiConsole.WriteLine();
 
         var result = _promptService.ConfirmPrompt(new ConfirmPromptOptions
         {
@@ -122,8 +130,8 @@ public class MediaSelectionService : IMediaSelectionService
 
     public async Task<OptimizedSearchResult[]?> SearchMediaByTitleAsync(string searchQuery, MediaTypePrediction mediaType)
     {
-        Console.WriteLine($"Searching for {(mediaType == MediaTypePrediction.Movie ? "movie" : "TV series")}: {searchQuery}");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[cyan]Searching for {(mediaType == MediaTypePrediction.Movie ? "movie" : "TV series")}:[/] [white]{Markup.Escape(searchQuery)}[/]");
+        AnsiConsole.WriteLine();
 
         // Search based on type
         OptimizedSearchResult[]? searchResults;
@@ -157,8 +165,8 @@ public class MediaSelectionService : IMediaSelectionService
         
         if (searchResults == null || searchResults.Length == 0)
         {
-            Console.WriteLine($"No {(mediaType == MediaTypePrediction.Movie ? "movies" : "TV series")} found matching '{searchQuery}'.");
-            Console.WriteLine();
+            AnsiConsole.MarkupLine($"[yellow]No {(mediaType == MediaTypePrediction.Movie ? "movies" : "TV series")} found matching[/] [white]'{Markup.Escape(searchQuery)}'[/]");
+            AnsiConsole.WriteLine();
             return null;
         }
 
@@ -169,7 +177,7 @@ public class MediaSelectionService : IMediaSelectionService
     {
         if (searchResults == null || searchResults.Count == 0)
         {
-            Console.WriteLine($"No results found for '{searchQuery}'.");
+            AnsiConsole.MarkupLine($"[yellow]No results found for[/] [white]'{Markup.Escape(searchQuery)}'[/]");
             return null;
         }
 
@@ -199,7 +207,7 @@ public class MediaSelectionService : IMediaSelectionService
         if (selection >= 1 && selection <= searchResults.Count)
         {
             var selected = searchResults[selection - 1];
-            Console.WriteLine($"Selected: {selected.Title} ({selected.Year})");
+            AnsiConsole.MarkupLine($"[green]Selected:[/] [white]{Markup.Escape(selected.Title ?? "Unknown")} ({selected.Year})[/]");
             return selected;
         }
         else if (selection == searchResults.Count + 1)
@@ -256,8 +264,8 @@ public class MediaSelectionService : IMediaSelectionService
 
         int? year = yearResult.Success ? yearResult.Value : null;
 
-        Console.WriteLine($"Searching for {(isMovie ? "movie" : "TV series")}: {titleResult.Value}" + (year.HasValue ? $" ({year})" : ""));
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[cyan]Searching for {(isMovie ? "movie" : "TV series")}:[/] [white]{Markup.Escape(titleResult.Value!)}[/]" + (year.HasValue ? $" [dim]({year})[/]" : ""));
+        AnsiConsole.WriteLine();
 
         // Search based on type
         OptimizedSearchResult[]? searchResults;
@@ -291,8 +299,8 @@ public class MediaSelectionService : IMediaSelectionService
         
         if (searchResults == null || searchResults.Length == 0)
         {
-            Console.WriteLine($"No {(isMovie ? "movies" : "TV series")} found matching '{titleResult.Value}'.");
-            Console.WriteLine();
+            AnsiConsole.MarkupLine($"[yellow]No {(isMovie ? "movies" : "TV series")} found matching[/] [white]'{Markup.Escape(titleResult.Value!)}'[/]");
+            AnsiConsole.WriteLine();
             return null;
         }
 
@@ -328,7 +336,7 @@ public class MediaSelectionService : IMediaSelectionService
         if (selection >= 1 && selection <= results.Length)
         {
             var selected = results[selection - 1];
-            Console.WriteLine($"Selected: {selected.Title} ({selected.Year})");
+            AnsiConsole.MarkupLine($"[green]Selected:[/] [white]{Markup.Escape(selected.Title ?? "Unknown")} ({selected.Year})[/]");
             
             // Return the selected result directly - callers will fetch full details as needed
             return selected;
@@ -355,9 +363,9 @@ public class MediaSelectionService : IMediaSelectionService
     private async Task<OptimizedSearchResult?> PerformImdbIdSearchAsync()
     {
         _promptService.DisplayHeader("Search by IMDB ID");
-        Console.WriteLine("Enter an IMDB ID to lookup media information.");
-        Console.WriteLine("Format: tt followed by numbers (e.g., tt1285016, tt0108778)");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine("[dim]Enter an IMDB ID to lookup media information.[/]");
+        AnsiConsole.MarkupLine("[dim]Format: tt followed by numbers (e.g., tt1285016, tt0108778)[/]");
+        AnsiConsole.WriteLine();
 
         while (true)
         {
@@ -378,8 +386,8 @@ public class MediaSelectionService : IMediaSelectionService
 
             var imdbId = imdbIdResult.Value.Trim();
 
-            Console.WriteLine($"Looking up IMDB ID: {imdbId}");
-            Console.WriteLine();
+            AnsiConsole.MarkupLine($"[cyan]Looking up IMDB ID:[/] [white]{imdbId}[/]");
+            AnsiConsole.WriteLine();
 
             // Fetch from OMDB
             var mediaResponse = await _omdbClient.GetMediaByImdbId(imdbId);
@@ -387,7 +395,7 @@ public class MediaSelectionService : IMediaSelectionService
             if (mediaResponse == null || !mediaResponse.IsValidOmdbResponse())
             {
                 _promptService.DisplayError($"No media found for IMDB ID: {imdbId}");
-                Console.WriteLine();
+                AnsiConsole.WriteLine();
 
                 // Ask if they want to try again
                 var retryResult = _promptService.ConfirmPrompt(new ConfirmPromptOptions
@@ -407,7 +415,7 @@ public class MediaSelectionService : IMediaSelectionService
             // Convert to OptimizedSearchResult
             var result = ModelConverter.ToOptimizedSearchResult(mediaResponse);
 
-            Console.WriteLine($"Found: {result.Title} ({result.Year}) - {result.Type?.ToUpperInvariant()}");
+            AnsiConsole.MarkupLine($"[green]Found:[/] [white]{Markup.Escape(result.Title ?? "Unknown")} ({result.Year})[/] [dim]- {result.Type?.ToUpperInvariant()}[/]");
             _logger.LogInformation($"IMDB ID search successful: {imdbId} -> {result.Title} ({result.Year})");
 
             return result;
@@ -421,8 +429,8 @@ public class MediaSelectionService : IMediaSelectionService
     private OptimizedSearchResult? PerformManualEntryAsync()
     {
         _promptService.DisplayHeader("Manual Media Entry");
-        Console.WriteLine("Enter media information directly (no OMDB search)");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine("[dim]Enter media information directly (no OMDB search)[/]");
+        AnsiConsole.WriteLine();
 
         // First ask for media type
         var typeResult = _promptService.SelectPrompt<MediaTypePrediction>(new SelectPromptOptions
@@ -481,8 +489,8 @@ public class MediaSelectionService : IMediaSelectionService
             Poster = null
         };
 
-        Console.WriteLine();
-        Console.WriteLine($"Created manual entry: {manualResult.Title} ({manualResult.Year}) - {manualResult.Type.ToUpperInvariant()}");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine($"[green]Created manual entry:[/] [white]{Markup.Escape(manualResult.Title)} ({manualResult.Year})[/] [dim]- {manualResult.Type.ToUpperInvariant()}[/]");
         _logger.LogInformation($"Manual entry created: {manualResult.Title} ({manualResult.Year}) - {manualResult.Type}");
 
         return manualResult;
@@ -498,22 +506,28 @@ public class MediaSelectionService : IMediaSelectionService
     public async Task<MediaIdentity?> SelectBetweenMovieAndSeriesAsync(string discName, ConfirmationInfo movieResult, ConfirmationInfo seriesResult)
     {
         _promptService.DisplayHeader($"Multiple media types found for disc: {discName}");
-        Console.WriteLine("Found both movie and TV series matches:");
-        Console.WriteLine();
-        Console.WriteLine($"MOVIE: {movieResult.Title} ({movieResult.Year})");
+        AnsiConsole.MarkupLine("[yellow]Found both movie and TV series matches:[/]");
+        AnsiConsole.WriteLine();
+
+        // Movie panel
+        var movieContent = $"[white]{Markup.Escape(movieResult.Title ?? "Unknown")} ({movieResult.Year})[/]";
         if (!string.IsNullOrEmpty(movieResult.Plot))
         {
-            Console.WriteLine($"   Plot: {movieResult.Plot}");
+            movieContent += $"\n[dim]{Markup.Escape(movieResult.Plot)}[/]";
         }
-        Console.WriteLine();
-        Console.WriteLine($"TV SERIES: {seriesResult.Title} ({seriesResult.Year})");
+        var moviePanel = new Panel(movieContent) { Header = new PanelHeader("[blue]MOVIE[/]"), Border = BoxBorder.Rounded };
+        AnsiConsole.Write(moviePanel);
+        AnsiConsole.WriteLine();
+
+        // Series panel
+        var seriesContent = $"[white]{Markup.Escape(seriesResult.Title ?? "Unknown")} ({seriesResult.Year})[/]";
         if (!string.IsNullOrEmpty(seriesResult.Plot))
         {
-            Console.WriteLine($"   Plot: {seriesResult.Plot}");
+            seriesContent += $"\n[dim]{Markup.Escape(seriesResult.Plot)}[/]";
         }
-        Console.WriteLine();
-        Console.WriteLine("Choose which media type is correct:");
-        Console.WriteLine();
+        var seriesPanel = new Panel(seriesContent) { Header = new PanelHeader("[green]TV SERIES[/]"), Border = BoxBorder.Rounded };
+        AnsiConsole.Write(seriesPanel);
+        AnsiConsole.WriteLine();
 
         while (true)
         {

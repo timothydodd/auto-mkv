@@ -333,9 +333,24 @@ public class MediaStateManager : IMediaStateManager
         // Extract base name for pattern matching (remove season/disc info)
         var baseName = ExtractBaseNameForMatching(discName);
 
-        return container.ManualIdentifications.FirstOrDefault(m =>
+        // Only return cached identifications for TV series
+        // Movies should never use cached identifications - each disc is a new movie
+        var match = container.ManualIdentifications.FirstOrDefault(m =>
             m.DiscNamePattern.Equals(baseName, StringComparison.OrdinalIgnoreCase) ||
             discName.StartsWith(m.DiscNamePattern, StringComparison.OrdinalIgnoreCase));
+
+        // If the cached identification is for a movie, don't use it for a different disc
+        if (match != null && match.MediaType.Equals("movie", StringComparison.OrdinalIgnoreCase))
+        {
+            // Only use movie cache if the disc name matches exactly (for re-ripping the same disc)
+            if (!match.DiscNamePattern.Equals(baseName, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogInformation($"Ignoring cached movie identification for '{match.DiscNamePattern}' - disc '{discName}' is different");
+                return null;
+            }
+        }
+
+        return match;
     }
 
     public async Task SaveManualIdentificationAsync(string discName, MediaIdentity mediaIdentity)

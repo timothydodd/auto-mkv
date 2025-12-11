@@ -9,6 +9,7 @@ using System.Threading;
 using System.Management;
 using Microsoft.Win32.SafeHandles;
 using AutoMk.Models;
+using Spectre.Console;
 
 namespace AutoMk;
 
@@ -72,7 +73,7 @@ public class DriveWatcher : IDisposable
         catch (Exception ex)
         {
             // Fall back to polling if WMI fails
-            Console.WriteLine($"Warning: Could not initialize WMI drive watcher: {ex.Message}");
+            AnsiConsole.MarkupLine($"[yellow]Warning:[/] Could not initialize WMI drive watcher: {Markup.Escape(ex.Message)}");
         }
     }
 
@@ -86,7 +87,7 @@ public class DriveWatcher : IDisposable
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error in drive change event: {ex.Message}");
+            AnsiConsole.MarkupLine($"[red]Error in drive change event:[/] {Markup.Escape(ex.Message)}");
         }
     }
 
@@ -186,14 +187,28 @@ public class DriveWatcher : IDisposable
 
     public List<DriveInfo> PrintDrives()
     {
-        Console.WriteLine("Drive List");
         var drives = GetDrives.ToList();
-        foreach (
-            DriveInfo drive in
-            GetDrives)
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .BorderColor(Color.Cyan1)
+            .Title("[cyan]Drive List[/]")
+            .AddColumn(new TableColumn("[white]Drive[/]").Centered())
+            .AddColumn(new TableColumn("[white]Type[/]").Centered())
+            .AddColumn(new TableColumn("[white]Status[/]").Centered());
+
+        foreach (DriveInfo drive in drives)
         {
-            Console.WriteLine("{0} type:{1} ready:{2}", drive.Name, drive.DriveType, drive.IsReady);
+            var statusColor = drive.IsReady ? "green" : "dim";
+            var statusText = drive.IsReady ? "Ready" : "Not Ready";
+            table.AddRow(
+                $"[white]{Markup.Escape(drive.Name)}[/]",
+                $"[dim]{drive.DriveType}[/]",
+                $"[{statusColor}]{statusText}[/]"
+            );
         }
+
+        AnsiConsole.Write(table);
         return drives;
     }
 
@@ -278,7 +293,7 @@ public class DriveWatcher : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error disposing drive watcher: {ex.Message}");
+                    AnsiConsole.MarkupLine($"[red]Error disposing drive watcher:[/] {Markup.Escape(ex.Message)}");
                 }
             }
             _disposed = true;

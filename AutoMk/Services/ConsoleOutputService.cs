@@ -2,11 +2,12 @@ using System;
 using AutoMk.Interfaces;
 using AutoMk.Models;
 using Microsoft.Extensions.Logging;
+using Spectre.Console;
 
 namespace AutoMk.Services;
 
 /// <summary>
-/// Provides enhanced console output functionality for user feedback
+/// Provides enhanced console output functionality for user feedback using Spectre.Console
 /// </summary>
 public class ConsoleOutputService : IConsoleOutputService
 {
@@ -26,7 +27,7 @@ public class ConsoleOutputService : IConsoleOutputService
     {
         if (_enableConsoleOutput)
         {
-            Console.WriteLine($"Detected disc: {discName}");
+            AnsiConsole.MarkupLine($"[blue]Detected disc:[/] [white]{Markup.Escape(discName)}[/]");
         }
         _logger.LogInformation($"Detected disc: {discName}");
     }
@@ -38,7 +39,7 @@ public class ConsoleOutputService : IConsoleOutputService
     {
         if (_enableConsoleOutput)
         {
-            Console.WriteLine($"Starting to process disc: {discName}");
+            AnsiConsole.MarkupLine($"[cyan]Starting to process disc:[/] [white]{Markup.Escape(discName)}[/]");
         }
         _logger.LogInformation($"Starting to process disc: {discName}");
     }
@@ -50,7 +51,7 @@ public class ConsoleOutputService : IConsoleOutputService
     {
         if (_enableConsoleOutput)
         {
-            Console.WriteLine($"Identified as: {title} ({type})");
+            AnsiConsole.MarkupLine($"[green]Identified as:[/] [white]{Markup.Escape(title)}[/] [dim]({Markup.Escape(type)})[/]");
         }
         _logger.LogInformation($"Identified as: {title} ({type})");
     }
@@ -62,7 +63,7 @@ public class ConsoleOutputService : IConsoleOutputService
     {
         if (_enableConsoleOutput)
         {
-            Console.WriteLine($"Ripping {totalTitles} titles from disc: {discName}");
+            AnsiConsole.MarkupLine($"[cyan]Ripping[/] [yellow]{totalTitles}[/] [cyan]titles from disc:[/] [white]{Markup.Escape(discName)}[/]");
         }
         _logger.LogInformation($"Ripping {totalTitles} titles from disc: {discName}");
     }
@@ -74,7 +75,7 @@ public class ConsoleOutputService : IConsoleOutputService
     {
         if (_enableConsoleOutput)
         {
-            Console.WriteLine($"   Ripping title {currentTitle}/{totalTitles}: {titleName} (ID: {titleId})");
+            AnsiConsole.MarkupLine($"   [dim]Ripping title[/] [yellow]{currentTitle}/{totalTitles}[/][dim]:[/] [white]{Markup.Escape(titleName)}[/] [dim](ID: {Markup.Escape(titleId)})[/]");
         }
         _logger.LogInformation($"Ripping title {currentTitle}/{totalTitles}: {titleName} (ID: {titleId})");
     }
@@ -86,7 +87,7 @@ public class ConsoleOutputService : IConsoleOutputService
     {
         if (_enableConsoleOutput)
         {
-            Console.WriteLine("Ripping completed successfully");
+            AnsiConsole.MarkupLine("[green]Ripping completed successfully[/]");
         }
         _logger.LogInformation("Ripping completed successfully");
     }
@@ -98,7 +99,7 @@ public class ConsoleOutputService : IConsoleOutputService
     {
         if (_enableConsoleOutput)
         {
-            Console.WriteLine($"WARNING: {message}");
+            AnsiConsole.MarkupLine($"[yellow]WARNING:[/] [white]{Markup.Escape(message)}[/]");
         }
         _logger.LogWarning(message);
     }
@@ -109,7 +110,7 @@ public class ConsoleOutputService : IConsoleOutputService
     public void ShowError(string message)
     {
         // Errors are always shown
-        Console.WriteLine($"ERROR: {message}");
+        AnsiConsole.MarkupLine($"[red]ERROR:[/] [white]{Markup.Escape(message)}[/]");
         _logger.LogError(message);
     }
 
@@ -120,9 +121,9 @@ public class ConsoleOutputService : IConsoleOutputService
     {
         if (_enableConsoleOutput)
         {
-            Console.WriteLine($"Renamed: {oldName} -> {newName}");
+            AnsiConsole.MarkupLine($"[dim]Renamed:[/] [white]{Markup.Escape(oldName)}[/] [blue]->[/] [green]{Markup.Escape(newName)}[/]");
         }
-        _logger.LogInformation($"Renamed: {oldName} → {newName}");
+        _logger.LogInformation($"Renamed: {oldName} -> {newName}");
     }
 
     /// <summary>
@@ -132,7 +133,7 @@ public class ConsoleOutputService : IConsoleOutputService
     {
         if (_enableConsoleOutput)
         {
-            Console.WriteLine($"Successfully organized {fileCount} files");
+            AnsiConsole.MarkupLine($"[green]Successfully organized[/] [yellow]{fileCount}[/] [green]files[/]");
         }
         _logger.LogInformation($"Successfully organized {fileCount} files");
     }
@@ -144,7 +145,7 @@ public class ConsoleOutputService : IConsoleOutputService
     {
         if (_enableConsoleOutput)
         {
-            Console.WriteLine($"Files moved to: {destination}");
+            AnsiConsole.MarkupLine($"[dim]Files moved to:[/] [cyan]{Markup.Escape(destination)}[/]");
         }
         _logger.LogInformation($"Files moved to: {destination}");
     }
@@ -156,7 +157,7 @@ public class ConsoleOutputService : IConsoleOutputService
     {
         if (_enableConsoleOutput)
         {
-            Console.WriteLine($"INFO: {message}");
+            AnsiConsole.MarkupLine($"[blue]INFO:[/] [white]{Markup.Escape(message)}[/]");
         }
         _logger.LogInformation(message);
     }
@@ -168,7 +169,7 @@ public class ConsoleOutputService : IConsoleOutputService
     {
         if (_enableConsoleOutput)
         {
-            Console.WriteLine($"SUCCESS: {message}");
+            AnsiConsole.MarkupLine($"[green]SUCCESS:[/] [white]{Markup.Escape(message)}[/]");
         }
         _logger.LogInformation(message);
     }
@@ -180,9 +181,9 @@ public class ConsoleOutputService : IConsoleOutputService
     {
         if (_enableConsoleOutput)
         {
-            Console.WriteLine($"Starting transfer: {fileName} -> {destination}");
+            AnsiConsole.MarkupLine($"[cyan]Starting transfer:[/] [white]{Markup.Escape(fileName)}[/] [blue]->[/] [dim]{Markup.Escape(destination)}[/]");
         }
-        _logger.LogInformation($"Starting transfer: {fileName} → {destination}");
+        _logger.LogInformation($"Starting transfer: {fileName} -> {destination}");
     }
 
     /// <summary>
@@ -192,7 +193,7 @@ public class ConsoleOutputService : IConsoleOutputService
     {
         if (_enableConsoleOutput)
         {
-            Console.WriteLine($"Transfer completed: {fileName}");
+            AnsiConsole.MarkupLine($"[green]Transfer completed:[/] [white]{Markup.Escape(fileName)}[/]");
         }
         _logger.LogInformation($"Transfer completed: {fileName}");
     }
@@ -207,13 +208,19 @@ public class ConsoleOutputService : IConsoleOutputService
             var percentage = totalBytes > 0 ? (bytesTransferred * 100.0 / totalBytes) : 0;
             var transferredGB = bytesTransferred / (1024.0 * 1024.0 * 1024.0);
             var totalGB = totalBytes / (1024.0 * 1024.0 * 1024.0);
-            
-            var timeRemainingStr = timeRemaining.TotalHours >= 1 
+
+            var timeRemainingStr = timeRemaining.TotalHours >= 1
                 ? $"{timeRemaining.Hours:D2}h {timeRemaining.Minutes:D2}m {timeRemaining.Seconds:D2}s"
                 : $"{timeRemaining.Minutes:D2}m {timeRemaining.Seconds:D2}s";
 
-            // Clear the current line and write the progress
-            Console.Write($"\r{fileName}: {percentage:F1}% ({transferredGB:F2}/{totalGB:F2} GB) - {transferRateMBps:F1} MB/s - ETA: {timeRemainingStr}");
+            // Create a colorful progress bar
+            var progressWidth = 25;
+            var filledWidth = (int)(percentage / 100.0 * progressWidth);
+            var emptyWidth = progressWidth - filledWidth;
+            var progressBar = $"[green]{new string('━', filledWidth)}[/][dim]{new string('─', emptyWidth)}[/]";
+
+            // Use carriage return to update in place with Spectre markup
+            AnsiConsole.Markup($"\r[dim]{Markup.Escape(fileName)}[/] [{progressBar}] [yellow]{percentage:F1}%[/] [dim]({transferredGB:F2}/{totalGB:F2} GB)[/] [cyan]{transferRateMBps:F1} MB/s[/] [dim]ETA:[/] [white]{timeRemainingStr}[/]    ");
         }
     }
 }

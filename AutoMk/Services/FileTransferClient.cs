@@ -12,6 +12,7 @@ using AutoMk.Interfaces;
 using AutoMk.Models;
 using AutoMk.Utilities;
 using Microsoft.Extensions.Logging;
+using Spectre.Console;
 
 namespace AutoMk.Services;
 
@@ -240,7 +241,7 @@ public class FileTransferClient : IFileTransferClient
             // Ensure we end the progress line with a newline
             if (_settings.Enabled)
             {
-                Console.WriteLine();
+                AnsiConsole.WriteLine();
             }
 
             if (response.IsSuccessStatusCode)

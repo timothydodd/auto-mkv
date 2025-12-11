@@ -7,6 +7,7 @@ using AutoMk.Interfaces;
 using AutoMk.Models;
 using AutoMk.Utilities;
 using Microsoft.Extensions.Logging;
+using Spectre.Console;
 
 namespace AutoMk.Services;
 
@@ -55,8 +56,8 @@ public class DiscoverAndNameService : IDiscoverAndNameService
         try
         {
             _promptService.DisplayHeader("DISCOVER AND NAME MODE");
-            Console.WriteLine("This mode will search for existing MKV files and help you organize them.");
-            Console.WriteLine();
+            AnsiConsole.MarkupLine("[dim]This mode will search for existing MKV files and help you organize them.[/]");
+            AnsiConsole.WriteLine();
 
             // Prompt for input directory
             var directoryResult = _promptService.TextPrompt(new TextPromptOptions
@@ -96,8 +97,8 @@ public class DiscoverAndNameService : IDiscoverAndNameService
                 return;
             }
 
-            Console.WriteLine($"Found {mkvFiles.Count} MKV file(s)");
-            Console.WriteLine();
+            AnsiConsole.MarkupLine($"[green]Found {mkvFiles.Count} MKV file(s)[/]");
+            AnsiConsole.WriteLine();
 
             // Process each file
             int processedCount = 0;
@@ -109,12 +110,20 @@ public class DiscoverAndNameService : IDiscoverAndNameService
                 var fileInfo = new FileInfo(filePath);
                 var fileSizeGB = fileInfo.Length / (1024.0 * 1024.0 * 1024.0);
 
-                Console.WriteLine();
+                AnsiConsole.WriteLine();
                 _promptService.DisplayHeader($"File {processedCount + skippedCount + 1} of {mkvFiles.Count}");
-                Console.WriteLine($"File: {fileName}");
-                Console.WriteLine($"Size: {fileSizeGB:F2} GB");
-                Console.WriteLine($"Path: {filePath}");
-                Console.WriteLine();
+
+                var fileTable = new Table()
+                    .Border(TableBorder.Rounded)
+                    .BorderColor(Color.Grey)
+                    .AddColumn("[white]Property[/]")
+                    .AddColumn("[white]Value[/]")
+                    .AddRow("[dim]File[/]", $"[white]{Markup.Escape(fileName)}[/]")
+                    .AddRow("[dim]Size[/]", $"[yellow]{fileSizeGB:F2} GB[/]")
+                    .AddRow("[dim]Path[/]", $"[dim]{Markup.Escape(filePath)}[/]");
+
+                AnsiConsole.Write(fileTable);
+                AnsiConsole.WriteLine();
 
                 // Ask if file needs to be named
                 var needsNamingResult = _promptService.ConfirmPrompt(new ConfirmPromptOptions
@@ -171,12 +180,20 @@ public class DiscoverAndNameService : IDiscoverAndNameService
             }
 
             // Summary
-            Console.WriteLine();
+            AnsiConsole.WriteLine();
             _promptService.DisplayHeader("SUMMARY");
-            Console.WriteLine($"Total files found: {mkvFiles.Count}");
-            Console.WriteLine($"Files processed: {processedCount}");
-            Console.WriteLine($"Files skipped: {skippedCount}");
-            Console.WriteLine();
+
+            var summaryTable = new Table()
+                .Border(TableBorder.Rounded)
+                .BorderColor(Color.Cyan1)
+                .AddColumn("[white]Metric[/]")
+                .AddColumn("[white]Count[/]")
+                .AddRow("[dim]Total files found[/]", $"[white]{mkvFiles.Count}[/]")
+                .AddRow("[dim]Files processed[/]", $"[green]{processedCount}[/]")
+                .AddRow("[dim]Files skipped[/]", $"[yellow]{skippedCount}[/]");
+
+            AnsiConsole.Write(summaryTable);
+            AnsiConsole.WriteLine();
             _logger.LogInformation($"Discover and Name workflow completed. Processed: {processedCount}, Skipped: {skippedCount}");
         }
         catch (Exception ex)
@@ -398,7 +415,7 @@ public class DiscoverAndNameService : IDiscoverAndNameService
                 fileToTransfer = filePath;
                 relativePath = Path.GetRelativePath(outputPath, filePath);
                 _logger.LogInformation("File is already organized, transferring directly: {RelativePath}", relativePath);
-                Console.WriteLine($"File is already organized, transferring: {relativePath}");
+                AnsiConsole.MarkupLine($"[dim]File is already organized, transferring:[/] [white]{Markup.Escape(relativePath)}[/]");
             }
             else
             {
@@ -419,13 +436,13 @@ public class DiscoverAndNameService : IDiscoverAndNameService
             }
 
             // Transfer the file directly with progress shown
-            Console.WriteLine($"Starting transfer: {relativePath}");
+            AnsiConsole.MarkupLine($"[cyan]Starting transfer:[/] [white]{Markup.Escape(relativePath)}[/]");
             var result = await _fileTransferClient.SendFileInBackground(relativePath, fileToTransfer);
 
             if (result == true)
             {
                 _logger.LogInformation("Successfully transferred file: {RelativePath}", relativePath);
-                Console.WriteLine($"Successfully transferred: {relativePath}");
+                AnsiConsole.MarkupLine($"[green]Successfully transferred:[/] [white]{Markup.Escape(relativePath)}[/]");
             }
             else if (result == false)
             {

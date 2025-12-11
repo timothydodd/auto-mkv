@@ -6,6 +6,7 @@ using AutoMk.Interfaces;
 using AutoMk.Models;
 using AutoMk.Utilities;
 using Microsoft.Extensions.Logging;
+using Spectre.Console;
 
 namespace AutoMk.Services;
 
@@ -29,13 +30,13 @@ public class SeriesConfigurationService : ISeriesConfigurationService
     public (int season, int episode) PromptForStartingSeasonAndEpisode(string seriesTitle, string discName)
     {
         _promptService.DisplayHeader("AUTOMATIC MODE - Season/Episode Information Needed");
-        
-        Console.WriteLine($"Series: {seriesTitle}");
-        Console.WriteLine($"Disc: {discName}");
-        Console.WriteLine();
-        Console.WriteLine("This disc hasn't been processed before and the season/episode");
-        Console.WriteLine("information cannot be determined automatically.");
-        Console.WriteLine();
+
+        AnsiConsole.MarkupLine($"[dim]Series:[/] [white]{Markup.Escape(seriesTitle)}[/]");
+        AnsiConsole.MarkupLine($"[dim]Disc:[/] [white]{Markup.Escape(discName)}[/]");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[yellow]This disc hasn't been processed before and the season/episode[/]");
+        AnsiConsole.MarkupLine("[yellow]information cannot be determined automatically.[/]");
+        AnsiConsole.WriteLine();
 
         var seasonResult = _promptService.NumberPrompt(new NumberPromptOptions
         {
@@ -59,7 +60,7 @@ public class SeriesConfigurationService : ISeriesConfigurationService
 
         int episode = episodeResult.Success ? episodeResult.Value : 1;
 
-        Console.WriteLine($"Starting with Season {season}, Episode {episode}");
+        AnsiConsole.MarkupLine($"[green]Starting with Season {season}, Episode {episode}[/]");
         
         _logger.LogInformation($"User specified starting point for {seriesTitle}: S{season:D2}E{episode:D2}");
         
@@ -69,12 +70,12 @@ public class SeriesConfigurationService : ISeriesConfigurationService
     public (double? minSize, double? maxSize) PromptForEpisodeSizeRange(string seriesTitle)
     {
         _promptService.DisplayHeader("NEW TV SERIES DETECTED - Episode Size Filter");
-        Console.WriteLine($"Series: {seriesTitle}");
-        Console.WriteLine();
-        Console.WriteLine("This is a new TV series. To improve episode filtering, you can specify");
-        Console.WriteLine("minimum and maximum file sizes for episodes in this series. This helps");
-        Console.WriteLine("skip extras, intros, and other unwanted files.");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[dim]Series:[/] [white]{Markup.Escape(seriesTitle)}[/]");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[cyan]This is a new TV series. To improve episode filtering, you can specify[/]");
+        AnsiConsole.MarkupLine("[cyan]minimum and maximum file sizes for episodes in this series. This helps[/]");
+        AnsiConsole.MarkupLine("[cyan]skip extras, intros, and other unwanted files.[/]");
+        AnsiConsole.WriteLine();
 
         var result = _promptService.SelectPrompt<bool>(new SelectPromptOptions
         {
@@ -98,12 +99,12 @@ public class SeriesConfigurationService : ISeriesConfigurationService
     public (int? minChapters, int? maxChapters) PromptForEpisodeChapterRange(string seriesTitle)
     {
         _promptService.DisplayHeader("NEW TV SERIES DETECTED - Episode Chapter Filter");
-        Console.WriteLine($"Series: {seriesTitle}");
-        Console.WriteLine();
-        Console.WriteLine("This is a new TV series. To improve episode filtering, you can specify");
-        Console.WriteLine("minimum and maximum chapter counts for episodes in this series. This helps");
-        Console.WriteLine("skip extras, intros, and other unwanted files based on chapter structure.");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[dim]Series:[/] [white]{Markup.Escape(seriesTitle)}[/]");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[cyan]This is a new TV series. To improve episode filtering, you can specify[/]");
+        AnsiConsole.MarkupLine("[cyan]minimum and maximum chapter counts for episodes in this series. This helps[/]");
+        AnsiConsole.MarkupLine("[cyan]skip extras, intros, and other unwanted files based on chapter structure.[/]");
+        AnsiConsole.WriteLine();
 
         var result = _promptService.SelectPrompt<bool>(new SelectPromptOptions
         {
@@ -127,13 +128,13 @@ public class SeriesConfigurationService : ISeriesConfigurationService
     public TrackSortingStrategy PromptForTrackSortingStrategy(string seriesTitle)
     {
         _promptService.DisplayHeader($"Track Sorting Strategy for TV Series: {seriesTitle}");
-        Console.WriteLine("For TV series, tracks need to be sorted to determine episode order.");
-        Console.WriteLine("Choose how you want tracks to be sorted:");
-        Console.WriteLine();
-        Console.WriteLine("Track Order is usually correct, but some discs may have episodes in wrong order.");
-        Console.WriteLine("MPLS File Name sorting can help when episodes are numbered correctly in the files.");
-        Console.WriteLine("User Confirmed allows you to verify/correct each episode assignment manually.");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine("[cyan]For TV series, tracks need to be sorted to determine episode order.[/]");
+        AnsiConsole.MarkupLine("[cyan]Choose how you want tracks to be sorted:[/]");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[dim]Track Order is usually correct, but some discs may have episodes in wrong order.[/]");
+        AnsiConsole.MarkupLine("[dim]MPLS File Name sorting can help when episodes are numbered correctly in the files.[/]");
+        AnsiConsole.MarkupLine("[dim]User Confirmed allows you to verify/correct each episode assignment manually.[/]");
+        AnsiConsole.WriteLine();
 
         var result = _promptService.SelectPrompt<TrackSortingStrategy>(new SelectPromptOptions
         {
@@ -165,15 +166,15 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         double ratio = trackLengthSeconds / minEpisodeLengthSeconds;
         
         _promptService.DisplayHeader("POSSIBLE DOUBLE EPISODE DETECTED");
-        Console.WriteLine($"Series: {seriesTitle}");
-        Console.WriteLine($"Track: {trackName}");
-        Console.WriteLine($"Track Length: {trackLengthSeconds / 60:F1} minutes");
-        Console.WriteLine($"Minimum Episode Length: {minEpisodeLengthSeconds / 60:F1} minutes");
-        Console.WriteLine($"Length Ratio: {ratio:F2}x longer than shortest episode");
-        Console.WriteLine();
-        Console.WriteLine("This track appears to be significantly longer than the shortest episode.");
-        Console.WriteLine("It might contain two episodes combined into one file.");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[dim]Series:[/] [white]{Markup.Escape(seriesTitle)}[/]");
+        AnsiConsole.MarkupLine($"[dim]Track:[/] [white]{Markup.Escape(trackName)}[/]");
+        AnsiConsole.MarkupLine($"[dim]Track Length:[/] [cyan]{trackLengthSeconds / 60:F1} minutes[/]");
+        AnsiConsole.MarkupLine($"[dim]Minimum Episode Length:[/] [cyan]{minEpisodeLengthSeconds / 60:F1} minutes[/]");
+        AnsiConsole.MarkupLine($"[dim]Length Ratio:[/] [yellow]{ratio:F2}x[/] [dim]longer than shortest episode[/]");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[yellow]This track appears to be significantly longer than the shortest episode.[/]");
+        AnsiConsole.MarkupLine("[yellow]It might contain two episodes combined into one file.[/]");
+        AnsiConsole.WriteLine();
 
         var result = _promptService.SelectPrompt(new SelectPromptOptions
         {
@@ -220,12 +221,12 @@ public class SeriesConfigurationService : ISeriesConfigurationService
     public SeriesProfile PromptForCompleteSeriesProfile(string seriesTitle, string discName)
     {
         _promptService.DisplayHeader("NEW TV SERIES CONFIGURATION");
-        Console.WriteLine($"Series: {seriesTitle}");
-        Console.WriteLine($"Disc: {discName}");
-        Console.WriteLine();
-        Console.WriteLine("This is a new TV series. Let's configure all settings upfront to minimize");
-        Console.WriteLine("interruptions during the ripping process.");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[dim]Series:[/] [white]{Markup.Escape(seriesTitle)}[/]");
+        AnsiConsole.MarkupLine($"[dim]Disc:[/] [white]{Markup.Escape(discName)}[/]");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[cyan]This is a new TV series. Let's configure all settings upfront to minimize[/]");
+        AnsiConsole.MarkupLine("[cyan]interruptions during the ripping process.[/]");
+        AnsiConsole.WriteLine();
 
         var profile = new SeriesProfile
         {
@@ -233,37 +234,29 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         };
 
         // 1. Episode Size Range
-        Console.WriteLine("STEP 1/6: Episode Size Filtering");
-        Console.WriteLine("---------------------------------");
+        AnsiConsole.Write(new Rule("[yellow]STEP 1/6: Episode Size Filtering[/]") { Justification = Justify.Left });
         var (minSize, maxSize) = PromptForEpisodeSizeRange(seriesTitle);
         profile.MinEpisodeSizeGB = minSize;
         profile.MaxEpisodeSizeGB = maxSize;
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
 
         // 2. Episode Chapter Range
-        Console.WriteLine("STEP 2/6: Episode Chapter Filtering");
-        Console.WriteLine("------------------------------------");
+        AnsiConsole.Write(new Rule("[yellow]STEP 2/6: Episode Chapter Filtering[/]") { Justification = Justify.Left });
         var (minChapters, maxChapters) = PromptForEpisodeChapterRange(seriesTitle);
         profile.MinEpisodeChapters = minChapters;
         profile.MaxEpisodeChapters = maxChapters;
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
 
         // 3. Track Sorting Strategy
-        Console.WriteLine("STEP 3/6: Track Sorting Method");
-        Console.WriteLine("-------------------------------");
+        AnsiConsole.Write(new Rule("[yellow]STEP 3/6: Track Sorting Method[/]") { Justification = Justify.Left });
         profile.TrackSortingStrategy = PromptForTrackSortingStrategy(seriesTitle);
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
 
         // 4. Double Episode Handling
-        Console.WriteLine("STEP 4/6: Double Episode Detection");
-        Console.WriteLine("-----------------------------------");
-        Console.WriteLine("Some discs combine two episodes into a single file.");
-        Console.WriteLine("How should these be handled?");
-        Console.WriteLine();
-        Console.WriteLine("1. Always ask me for each long episode (recommended)");
-        Console.WriteLine("2. Always treat as single episodes");
-        Console.WriteLine("3. Always treat long files as double episodes");
-        Console.WriteLine();
+        AnsiConsole.Write(new Rule("[yellow]STEP 4/6: Double Episode Detection[/]") { Justification = Justify.Left });
+        AnsiConsole.MarkupLine("[dim]Some discs combine two episodes into a single file.[/]");
+        AnsiConsole.MarkupLine("[dim]How should these be handled?[/]");
+        AnsiConsole.WriteLine();
 
         var doubleEpisodeResult = _promptService.SelectPrompt<DoubleEpisodeHandling>(new SelectPromptOptions
         {
@@ -286,12 +279,11 @@ public class SeriesConfigurationService : ISeriesConfigurationService
             profile.DoubleEpisodeHandling = DoubleEpisodeHandling.AlwaysAsk;
             _logger.LogInformation($"User cancelled double episode choice, defaulting to Always Ask for {seriesTitle}");
         }
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
 
         // 5. Starting Season/Episode (if not clear from disc name)
-        Console.WriteLine("STEP 5/6: Starting Position");
-        Console.WriteLine("----------------------------");
-        if (!discName.Contains("S", StringComparison.OrdinalIgnoreCase) || 
+        AnsiConsole.Write(new Rule("[yellow]STEP 5/6: Starting Position[/]") { Justification = Justify.Left });
+        if (!discName.Contains("S", StringComparison.OrdinalIgnoreCase) ||
             !discName.Contains("D", StringComparison.OrdinalIgnoreCase))
         {
             var (season, episode) = PromptForStartingSeasonAndEpisode(seriesTitle, discName);
@@ -300,19 +292,15 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         }
         else
         {
-            Console.WriteLine("Season/Episode information will be extracted from disc name.");
+            AnsiConsole.MarkupLine("[dim]Season/Episode information will be extracted from disc name.[/]");
         }
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
 
         // 6. Auto-increment mode
-        Console.WriteLine("STEP 6/6: Multi-Disc Handling");
-        Console.WriteLine("------------------------------");
-        Console.WriteLine("When processing multiple discs with similar names, should episode");
-        Console.WriteLine("numbers automatically continue from where the previous disc ended?");
-        Console.WriteLine();
-        Console.WriteLine("1. Yes - Enable auto-increment mode");
-        Console.WriteLine("2. No - Always check disc processing history");
-        Console.WriteLine();
+        AnsiConsole.Write(new Rule("[yellow]STEP 6/6: Multi-Disc Handling[/]") { Justification = Justify.Left });
+        AnsiConsole.MarkupLine("[dim]When processing multiple discs with similar names, should episode[/]");
+        AnsiConsole.MarkupLine("[dim]numbers automatically continue from where the previous disc ended?[/]");
+        AnsiConsole.WriteLine();
 
         var autoIncrementResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
         {
@@ -335,7 +323,7 @@ public class SeriesConfigurationService : ISeriesConfigurationService
             _logger.LogInformation($"User cancelled auto-increment choice, defaulting to disabled for {seriesTitle}");
         }
 
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
         _promptService.DisplayHeader($"Series configuration complete! These settings will be used for all future discs from {seriesTitle}.");
 
         return profile;
@@ -344,12 +332,12 @@ public class SeriesConfigurationService : ISeriesConfigurationService
     public SeriesProfile PromptForModifySeriesProfile(SeriesProfile existingProfile, string discName)
     {
         _promptService.DisplayHeader("MODIFY TV SERIES CONFIGURATION");
-        Console.WriteLine($"Series: {existingProfile.SeriesTitle}");
-        Console.WriteLine($"Disc: {discName}");
-        Console.WriteLine();
-        Console.WriteLine("You can modify individual settings or keep the existing values.");
-        Console.WriteLine("For each setting, you'll see the current value and can choose to keep it or change it.");
-        Console.WriteLine();
+        AnsiConsole.MarkupLine($"[dim]Series:[/] [white]{Markup.Escape(existingProfile.SeriesTitle)}[/]");
+        AnsiConsole.MarkupLine($"[dim]Disc:[/] [white]{Markup.Escape(discName)}[/]");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[cyan]You can modify individual settings or keep the existing values.[/]");
+        AnsiConsole.MarkupLine("[dim]For each setting, you'll see the current value and can choose to keep it or change it.[/]");
+        AnsiConsole.WriteLine();
 
         var modifiedProfile = new SeriesProfile
         {
@@ -359,20 +347,16 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         };
 
         // 1. Episode Size Range
-        Console.WriteLine("SETTING 1/5: Episode Size Filtering");
-        Console.WriteLine("------------------------------------");
+        AnsiConsole.Write(new Rule("[yellow]SETTING 1/5: Episode Size Filtering[/]") { Justification = Justify.Left });
         if (existingProfile.MinEpisodeSizeGB.HasValue && existingProfile.MaxEpisodeSizeGB.HasValue)
         {
-            Console.WriteLine($"Current: Custom range {existingProfile.MinEpisodeSizeGB:F1} - {existingProfile.MaxEpisodeSizeGB:F1} GB");
+            AnsiConsole.MarkupLine($"[dim]Current:[/] Custom range [cyan]{existingProfile.MinEpisodeSizeGB:F1} - {existingProfile.MaxEpisodeSizeGB:F1} GB[/]");
         }
         else
         {
-            Console.WriteLine("Current: Using default filtering (global settings)");
+            AnsiConsole.MarkupLine("[dim]Current:[/] Using default filtering (global settings)");
         }
-        Console.WriteLine();
-        Console.WriteLine("1. Keep current episode size settings");
-        Console.WriteLine("2. Change episode size settings");
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
 
         var sizeSettingsResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
         {
@@ -396,16 +380,12 @@ public class SeriesConfigurationService : ISeriesConfigurationService
             modifiedProfile.MinEpisodeSizeGB = minSize;
             modifiedProfile.MaxEpisodeSizeGB = maxSize;
         }
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
 
         // 2. Track Sorting Strategy
-        Console.WriteLine("SETTING 2/5: Track Sorting Method");
-        Console.WriteLine("----------------------------------");
-        Console.WriteLine($"Current: {existingProfile.TrackSortingStrategy}");
-        Console.WriteLine();
-        Console.WriteLine("1. Keep current track sorting method");
-        Console.WriteLine("2. Change track sorting method");
-        Console.WriteLine();
+        AnsiConsole.Write(new Rule("[yellow]SETTING 2/5: Track Sorting Method[/]") { Justification = Justify.Left });
+        AnsiConsole.MarkupLine($"[dim]Current:[/] [cyan]{existingProfile.TrackSortingStrategy}[/]");
+        AnsiConsole.WriteLine();
 
         var trackSortingResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
         {
@@ -426,16 +406,12 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         {
             modifiedProfile.TrackSortingStrategy = PromptForTrackSortingStrategy(existingProfile.SeriesTitle);
         }
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
 
         // 3. Double Episode Handling
-        Console.WriteLine("SETTING 3/5: Double Episode Detection");
-        Console.WriteLine("--------------------------------------");
-        Console.WriteLine($"Current: {existingProfile.DoubleEpisodeHandling}");
-        Console.WriteLine();
-        Console.WriteLine("1. Keep current double episode handling");
-        Console.WriteLine("2. Change double episode handling");
-        Console.WriteLine();
+        AnsiConsole.Write(new Rule("[yellow]SETTING 3/5: Double Episode Detection[/]") { Justification = Justify.Left });
+        AnsiConsole.MarkupLine($"[dim]Current:[/] [cyan]{existingProfile.DoubleEpisodeHandling}[/]");
+        AnsiConsole.WriteLine();
 
         var doubleEpisodeKeepResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
         {
@@ -454,7 +430,7 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         }
         else
         {
-            Console.WriteLine();
+            AnsiConsole.WriteLine();
             var newDoubleHandlingResult = _promptService.SelectPrompt<DoubleEpisodeHandling>(new SelectPromptOptions
             {
                 Question = "How should long episodes be handled?",
@@ -477,23 +453,19 @@ public class SeriesConfigurationService : ISeriesConfigurationService
                 _logger.LogInformation($"User cancelled double episode change, keeping existing setting for {existingProfile.SeriesTitle}");
             }
         }
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
 
         // 4. Starting Season/Episode (if not clear from disc name)
-        Console.WriteLine("SETTING 4/5: Starting Position");
-        Console.WriteLine("-------------------------------");
+        AnsiConsole.Write(new Rule("[yellow]SETTING 4/5: Starting Position[/]") { Justification = Justify.Left });
         if (existingProfile.DefaultStartingSeason.HasValue && existingProfile.DefaultStartingEpisode.HasValue)
         {
-            Console.WriteLine($"Current: Default starting position S{existingProfile.DefaultStartingSeason:D2}E{existingProfile.DefaultStartingEpisode:D2}");
+            AnsiConsole.MarkupLine($"[dim]Current:[/] Default starting position [cyan]S{existingProfile.DefaultStartingSeason:D2}E{existingProfile.DefaultStartingEpisode:D2}[/]");
         }
         else
         {
-            Console.WriteLine("Current: Extract from disc name automatically");
+            AnsiConsole.MarkupLine("[dim]Current:[/] Extract from disc name automatically");
         }
-        Console.WriteLine();
-        Console.WriteLine("1. Keep current starting position settings");
-        Console.WriteLine("2. Change starting position settings");
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
 
         var startingPositionResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
         {
@@ -522,21 +494,17 @@ public class SeriesConfigurationService : ISeriesConfigurationService
             }
             else
             {
-                Console.WriteLine("Season/Episode information will be extracted from disc name.");
+                AnsiConsole.MarkupLine("[dim]Season/Episode information will be extracted from disc name.[/]");
                 modifiedProfile.DefaultStartingSeason = null;
                 modifiedProfile.DefaultStartingEpisode = null;
             }
         }
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
 
         // 5. Auto-increment mode
-        Console.WriteLine("SETTING 5/5: Multi-Disc Handling");
-        Console.WriteLine("---------------------------------");
-        Console.WriteLine($"Current: Auto-increment {(existingProfile.UseAutoIncrement ? "Enabled" : "Disabled")}");
-        Console.WriteLine();
-        Console.WriteLine("1. Keep current auto-increment setting");
-        Console.WriteLine("2. Change auto-increment setting");
-        Console.WriteLine();
+        AnsiConsole.Write(new Rule("[yellow]SETTING 5/5: Multi-Disc Handling[/]") { Justification = Justify.Left });
+        AnsiConsole.MarkupLine($"[dim]Current:[/] Auto-increment [cyan]{(existingProfile.UseAutoIncrement ? "Enabled" : "Disabled")}[/]");
+        AnsiConsole.WriteLine();
 
         var autoIncrementKeepResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
         {
@@ -555,10 +523,10 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         }
         else
         {
-            Console.WriteLine();
-            Console.WriteLine("When processing multiple discs with similar names, should episode");
-            Console.WriteLine("numbers automatically continue from where the previous disc ended?");
-            Console.WriteLine();
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[dim]When processing multiple discs with similar names, should episode[/]");
+            AnsiConsole.MarkupLine("[dim]numbers automatically continue from where the previous disc ended?[/]");
+            AnsiConsole.WriteLine();
 
             var newAutoIncrementResult = _promptService.SelectPrompt<bool>(new SelectPromptOptions
             {
@@ -582,7 +550,7 @@ public class SeriesConfigurationService : ISeriesConfigurationService
             }
         }
 
-        Console.WriteLine();
+        AnsiConsole.WriteLine();
         _promptService.DisplayHeader($"Settings modification complete! Updated settings will be used for this disc and saved for future discs from {existingProfile.SeriesTitle}.");
 
         return modifiedProfile;
@@ -627,35 +595,35 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         var isPatternBased = confidence > 0.7 && patternSuggestion != suggestedEpisode;
 
         _promptService.DisplayHeader("EPISODE CONFIRMATION");
-        Console.WriteLine($"Series: {seriesTitle}");
-        Console.WriteLine($"Season: {season}");
-        Console.WriteLine($"Track: {trackName}");
-        Console.WriteLine();
-        
+        AnsiConsole.MarkupLine($"[dim]Series:[/] [white]{Markup.Escape(seriesTitle)}[/]");
+        AnsiConsole.MarkupLine($"[dim]Season:[/] [cyan]{season}[/]");
+        AnsiConsole.MarkupLine($"[dim]Track:[/] [white]{Markup.Escape(trackName)}[/]");
+        AnsiConsole.WriteLine();
+
         if (isPatternBased)
         {
-            Console.WriteLine($"Suggested Episode: {finalSuggestion} (based on learned UserConfirmed pattern, confidence: {confidence:P0})");
+            AnsiConsole.MarkupLine($"[cyan]Suggested Episode:[/] [white]{finalSuggestion}[/] [dim](based on learned UserConfirmed pattern, confidence: {confidence:P0})[/]");
         }
         else
         {
-            Console.WriteLine($"Suggested Episode: {finalSuggestion}");
+            AnsiConsole.MarkupLine($"[cyan]Suggested Episode:[/] [white]{finalSuggestion}[/]");
         }
-        
+
         if (!string.IsNullOrEmpty(episodeTitle))
         {
-            Console.WriteLine($"Episode Title: {episodeTitle}");
+            AnsiConsole.MarkupLine($"[dim]Episode Title:[/] [white]{Markup.Escape(episodeTitle)}[/]");
         }
-        
+
         if (hasPatterns && !isPatternBased && confidence <= 0.7)
         {
-            Console.WriteLine($"Note: UserConfirmed pattern available but confidence is low ({confidence:P0})");
+            AnsiConsole.MarkupLine($"[dim]Note: UserConfirmed pattern available but confidence is low ({confidence:P0})[/]");
         }
         else if (hasPatterns && !isPatternBased && confidence > 0.7)
         {
-            Console.WriteLine($"Note: UserConfirmed pattern matches default suggestion (confidence: {confidence:P0})");
+            AnsiConsole.MarkupLine($"[dim]Note: UserConfirmed pattern matches default suggestion (confidence: {confidence:P0})[/]");
         }
-        
-        Console.WriteLine();
+
+        AnsiConsole.WriteLine();
 
         while (true)
         {
@@ -748,16 +716,16 @@ public class SeriesConfigurationService : ISeriesConfigurationService
                 var episodeInfo = await enhancedOmdbService.GetEpisodeInfoAsync(seriesTitle, season, episodeNum);
                 var title = episodeInfo?.Title ?? "(No info available)";
                 episodeInfos[episodeNum] = title;
-                Console.WriteLine($"  {episodeNum}. Episode {episodeNum}: {title}");
+                AnsiConsole.MarkupLine($"  [dim]{episodeNum}.[/] Episode {episodeNum}: {Markup.Escape(title)}");
             }
             catch
             {
                 episodeInfos[episodeNum] = "(Error retrieving info)";
-                Console.WriteLine($"  {episodeNum}. Episode {episodeNum}: (Error retrieving info)");
+                AnsiConsole.MarkupLine($"  [dim]{episodeNum}.[/] Episode {episodeNum}: [red](Error retrieving info)[/]");
             }
         }
-        
-        Console.WriteLine();
+
+        AnsiConsole.WriteLine();
 
         var choices = new List<PromptChoice>();
         foreach (var episodeNum in availableEpisodes.OrderBy(x => x))
@@ -781,7 +749,7 @@ public class SeriesConfigurationService : ISeriesConfigurationService
 
         var selectedEpisode = selectionResult.Value;
         var episodeTitle = episodeInfos.GetValueOrDefault(selectedEpisode, "Unknown");
-        Console.WriteLine($"Selected: Episode {selectedEpisode} - {episodeTitle}");
+        AnsiConsole.MarkupLine($"[green]Selected:[/] Episode {selectedEpisode} - {Markup.Escape(episodeTitle)}");
         _logger.LogInformation($"User selected episode {selectedEpisode} ({episodeTitle}) for track {trackName}");
         return selectedEpisode;
     }
@@ -855,7 +823,7 @@ public class SeriesConfigurationService : ISeriesConfigurationService
             minSize = 0.5;
         }
         
-        Console.WriteLine($"Minimum episode size set to {minSize} GB");
+        AnsiConsole.MarkupLine($"[green]Minimum episode size set to {minSize} GB[/]");
         
         // Get maximum size
         var maxSizeResult = _promptService.TextPrompt(new TextPromptOptions
@@ -873,7 +841,7 @@ public class SeriesConfigurationService : ISeriesConfigurationService
             maxSize = Math.Max(minSize * 2, 10);
         }
 
-        Console.WriteLine($"Maximum episode size set to {maxSize} GB");
+        AnsiConsole.MarkupLine($"[green]Maximum episode size set to {maxSize} GB[/]");
         _logger.LogInformation($"User set episode size range: {minSize} - {maxSize} GB");
         return (minSize, maxSize);
     }
@@ -898,7 +866,7 @@ public class SeriesConfigurationService : ISeriesConfigurationService
             minChapters = 1;
         }
 
-        Console.WriteLine($"Minimum episode chapters set to {minChapters}");
+        AnsiConsole.MarkupLine($"[green]Minimum episode chapters set to {minChapters}[/]");
 
         // Get maximum chapters
         var maxChaptersResult = _promptService.TextPrompt(new TextPromptOptions
@@ -916,7 +884,7 @@ public class SeriesConfigurationService : ISeriesConfigurationService
             maxChapters = Math.Max(minChapters * 2, 50);
         }
 
-        Console.WriteLine($"Maximum episode chapters set to {maxChapters}");
+        AnsiConsole.MarkupLine($"[green]Maximum episode chapters set to {maxChapters}[/]");
         _logger.LogInformation($"User set episode chapter range: {minChapters} - {maxChapters}");
         return (minChapters, maxChapters);
     }

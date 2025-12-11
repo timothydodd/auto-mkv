@@ -3,15 +3,17 @@ using System.Globalization;
 using AutoMk.Models;
 using AutoMk.Utilities;
 using Microsoft.Extensions.Logging;
-using ShellProgressBar;
+using Spectre.Console;
 
 namespace AutoMk.Services;
 
 public class MakeMkvProgressReporter : IDisposable
 {
     private readonly ILogger<MakeMkvProgressReporter> _logger;
-    private ProgressBar? _progressBar;
     private readonly MakeMkvStatus _status = new();
+    private string _currentTitle = "";
+    private bool _isActive;
+    private float _lastPercentage = -1;
 
     public MakeMkvProgressReporter(ILogger<MakeMkvProgressReporter> logger)
     {
@@ -22,30 +24,52 @@ public class MakeMkvProgressReporter : IDisposable
 
     public void StartProgress(string title, int maxTicks = 100)
     {
-        _progressBar?.Dispose();
-        
-        var options = new ProgressBarOptions
-        {
-            ProgressCharacter = '─',
-            ProgressBarOnBottom = true,
-            ForegroundColor = ConsoleColor.Yellow,
-            BackgroundColor = ConsoleColor.DarkYellow,
-            BackgroundCharacter = '\u2593'
-        };
-
-        _progressBar = new ProgressBar(maxTicks, title, options);
+        _currentTitle = title;
         _status.Converting = true;
+        _isActive = true;
+        _lastPercentage = -1;
+
+        AnsiConsole.MarkupLine($"[cyan]Starting:[/] [white]{Markup.Escape(title)}[/]");
     }
 
     public void UpdateProgress(float percentage)
     {
-        if (_progressBar != null)
-        {
-            var ticks = (int)(percentage / 100.0 * _progressBar.MaxTicks);
-            _progressBar.Tick(ticks, $"Progress: {percentage:F1}%");
-        }
-        
         _status.Percentage = percentage;
+
+        if (_isActive)
+        {
+            // Only update display if percentage changed significantly (reduces flicker)
+            if (Math.Abs(percentage - _lastPercentage) < 0.5f && _lastPercentage >= 0)
+                return;
+
+            _lastPercentage = percentage;
+
+            // Build status line with available information
+            var statusParts = new System.Collections.Generic.List<string>();
+            statusParts.Add($"[yellow]{percentage:F1}%[/]");
+
+            if (_status.CurrentFps > 0)
+                statusParts.Add($"[dim]{_status.CurrentFps:F1} fps[/]");
+
+            if (_status.Estimated != TimeSpan.Zero)
+            {
+                var eta = _status.Estimated.TotalHours >= 1
+                    ? $"{_status.Estimated.Hours:D2}h {_status.Estimated.Minutes:D2}m"
+                    : $"{_status.Estimated.Minutes:D2}m {_status.Estimated.Seconds:D2}s";
+                statusParts.Add($"[cyan]ETA: {eta}[/]");
+            }
+
+            var statusLine = string.Join(" [dim]|[/] ", statusParts);
+
+            // Create a colorful progress bar representation
+            var progressWidth = 30;
+            var filledWidth = (int)(percentage / 100.0 * progressWidth);
+            var emptyWidth = progressWidth - filledWidth;
+            var progressBar = $"[green]{new string('━', filledWidth)}[/][dim]{new string('─', emptyWidth)}[/]";
+
+            // Use carriage return to update in place with markup
+            AnsiConsole.Markup($"\r  [{progressBar}] {statusLine}          ");
+        }
     }
 
     public void ParseProgressLine(string line)
@@ -71,10 +95,10 @@ public class MakeMkvProgressReporter : IDisposable
                 {
                     if (float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var currentFps))
                         _status.CurrentFps = currentFps;
-                    
+
                     if (float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var avgFps))
                         _status.AverageFps = avgFps;
-                    
+
                     if (TimeSpan.TryParse(parts[3], out var estimated))
                         _status.Estimated = estimated;
                 }
@@ -88,8 +112,15 @@ public class MakeMkvProgressReporter : IDisposable
 
     public void CompleteProgress()
     {
-        _progressBar?.Dispose();
-        _progressBar = null;
+        if (_isActive)
+        {
+            // Clear the progress line and show completion
+            AnsiConsole.WriteLine(); // Move to next line
+            AnsiConsole.MarkupLine($"[green]Completed:[/] [white]{Markup.Escape(_currentTitle)}[/]");
+        }
+
+        _isActive = false;
+        _lastPercentage = -1;
         _status.Converting = false;
         _status.Percentage = 0;
         _status.CurrentFps = 0;
@@ -101,6 +132,10 @@ public class MakeMkvProgressReporter : IDisposable
 
     public void Dispose()
     {
-        _progressBar?.Dispose();
+        if (_isActive)
+        {
+            AnsiConsole.WriteLine(); // Ensure we're on a new line
+        }
+        _isActive = false;
     }
 }

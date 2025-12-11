@@ -10,6 +10,7 @@ using AutoMk.Models;
 using AutoMk.Services;
 using AutoMk.Utilities;
 using Microsoft.Extensions.Logging;
+using Spectre.Console;
 
 namespace AutoMk;
 
@@ -762,7 +763,7 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         {
             // For movies, suggest the largest track but let user choose
             var largestTitle = availableTitles.OrderByDescending(t => t.SizeInBytes).FirstOrDefault();
-            Console.WriteLine($"Suggested track for movie (largest): {largestTitle?.Name} ({largestTitle?.SizeInGB:F2} GB)");
+            AnsiConsole.MarkupLine($"[cyan]Suggested track for movie (largest):[/] [white]{Markup.Escape(largestTitle?.Name ?? "Unknown")}[/] [dim]({largestTitle?.SizeInGB:F2} GB)[/]");
             titlesToRip = _manualModeService.SelectTracksToRip(availableTitles);
         }
         else

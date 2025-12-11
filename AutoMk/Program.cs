@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using AutoMk.Interfaces;
 using AutoMk.Models;
@@ -9,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Spectre.Console;
 
 
 namespace AutoMk
@@ -26,7 +28,7 @@ namespace AutoMk
 
             var config = Configure();
 
-            Console.WriteLine("..enter Ctrl+C or Ctrl+Break to exit..");
+            AnsiConsole.MarkupLine("[dim]..enter Ctrl+C or Ctrl+Break to exit..[/]");
 
             // But for the host, use Host.CreateDefaultBuilder
             var host = Host.CreateDefaultBuilder(args)
@@ -47,18 +49,18 @@ namespace AutoMk
                     {
                         case ModeSelectionSetting.Ask:
                             rip.ManualMode = PromptForModeSelection();
-                            Console.WriteLine($"Running in {(rip.ManualMode ? "MANUAL" : "AUTOMATIC")} mode.");
-                            Console.WriteLine();
+                            AnsiConsole.MarkupLine($"[green]Running in[/] [yellow]{(rip.ManualMode ? "MANUAL" : "AUTOMATIC")}[/] [green]mode.[/]");
+                            AnsiConsole.WriteLine();
                             break;
                         case ModeSelectionSetting.AlwaysManual:
                             rip.ManualMode = true;
-                            Console.WriteLine("Running in MANUAL mode (configured setting).");
-                            Console.WriteLine();
+                            AnsiConsole.MarkupLine("[green]Running in[/] [yellow]MANUAL[/] [green]mode (configured setting).[/]");
+                            AnsiConsole.WriteLine();
                             break;
                         case ModeSelectionSetting.AlwaysAutomatic:
                             rip.ManualMode = false;
-                            Console.WriteLine("Running in AUTOMATIC mode (configured setting).");
-                            Console.WriteLine();
+                            AnsiConsole.MarkupLine("[green]Running in[/] [yellow]AUTOMATIC[/] [green]mode (configured setting).[/]");
+                            AnsiConsole.WriteLine();
                             break;
                     }
 
@@ -174,110 +176,114 @@ namespace AutoMk
 
         private static void DisplayStartupBanner()
         {
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine(@"
-    ╔═══════════════════════════════════════════════════════════════════╗
-    ║                                                                   ║
-    ║      █████╗ ██╗   ██╗████████╗ ██████╗       ███╗   ███╗██╗  ██╗  ║
-    ║     ██╔══██╗██║   ██║╚══██╔══╝██╔═══██╗      ████╗ ████║██║ ██╔╝  ║
-    ║     ███████║██║   ██║   ██║   ██║   ██║█████╗██╔████╔██║█████╔╝   ║
-    ║     ██╔══██║██║   ██║   ██║   ██║   ██║╚════╝██║╚██╔╝██║██╔═██╗   ║
-    ║     ██║  ██║╚██████╔╝   ██║   ╚██████╔╝      ██║ ╚═╝ ██║██║  ██╗  ║
-    ║     ╚═╝  ╚═╝ ╚═════╝    ╚═╝    ╚═════╝       ╚═╝     ╚═╝╚═╝  ╚═╝  ║
-    ║                                                                   ║
-    ║              Automated MakeMKV Disc Ripping & Organization        ║
-    ║                                                                   ║
-    ║   • Continuous disc monitoring                                    ║
-    ║   • Intelligent media identification (OMDB)                       ║
-    ║   • Plex-compatible naming & organization                         ║
-    ║   • Multi-disc TV series support                                  ║
-    ║   • Interactive manual identification                             ║
-    ║                                                                   ║
-    ╚═══════════════════════════════════════════════════════════════════╝");
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine("                           Starting AutoMk...\n");
-            Console.ResetColor();
+            var banner = new Panel(
+                new Markup(@"[cyan]
+  █████╗ ██╗   ██╗████████╗ ██████╗       ███╗   ███╗██╗  ██╗
+ ██╔══██╗██║   ██║╚══██╔══╝██╔═══██╗      ████╗ ████║██║ ██╔╝
+ ███████║██║   ██║   ██║   ██║   ██║█████╗██╔████╔██║█████╔╝
+ ██╔══██║██║   ██║   ██║   ██║   ██║╚════╝██║╚██╔╝██║██╔═██╗
+ ██║  ██║╚██████╔╝   ██║   ╚██████╔╝      ██║ ╚═╝ ██║██║  ██╗
+ ╚═╝  ╚═╝ ╚═════╝    ╚═╝    ╚═════╝       ╚═╝     ╚═╝╚═╝  ╚═╝[/]
+
+        [white]Automated MakeMKV Disc Ripping & Organization[/]
+
+ [dim]•[/] Continuous disc monitoring
+ [dim]•[/] Intelligent media identification (OMDB)
+ [dim]•[/] Plex-compatible naming & organization
+ [dim]•[/] Multi-disc TV series support
+ [dim]•[/] Interactive manual identification"))
+            {
+                Border = BoxBorder.Double,
+                BorderStyle = new Style(Color.Cyan1),
+                Padding = new Padding(2, 0, 2, 0)
+            };
+
+            AnsiConsole.Write(banner);
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[yellow]                        Starting AutoMk...[/]");
+            AnsiConsole.WriteLine();
         }
 
         private static bool PromptForModeSelection()
         {
-            Console.WriteLine();
-            DisplayHeader("MODE SELECTION");
-            Console.WriteLine("Choose how AutoMk should process discs:");
-            Console.WriteLine();
-            Console.WriteLine("1. AUTOMATIC MODE (Default)");
-            Console.WriteLine("   • Uses OMDB API to automatically identify media");
-            Console.WriteLine("   • Uses state file to track TV series episodes");
-            Console.WriteLine("   • Filters tracks by size settings");
-            Console.WriteLine("   • Minimal user interaction required");
-            Console.WriteLine();
-            Console.WriteLine("2. MANUAL MODE");
-            Console.WriteLine("   • User confirms all media identification");
-            Console.WriteLine("   • User selects which tracks to rip");
-            Console.WriteLine("   • User manually maps episodes for TV series");
-            Console.WriteLine("   • State file is bypassed - fresh processing every time");
-            Console.WriteLine();
-            Console.WriteLine("3. CONFIGURE TV SERIES PROFILES");
-            Console.WriteLine("   • Pre-configure settings for TV series");
-            Console.WriteLine("   • Set episode sizes, sorting, and handling preferences");
-            Console.WriteLine("   • View and edit existing series profiles");
-            Console.WriteLine();
-            Console.WriteLine("4. DISCOVER AND NAME MODE");
-            Console.WriteLine("   • Search for existing MKV files (no ripping)");
-            Console.WriteLine("   • Identify and rename files with proper naming");
-            Console.WriteLine("   • Organize files and optionally transfer to server");
-            Console.WriteLine();
-
             while (true)
             {
-                Console.Write("Enter your choice (1 for Automatic, 2 for Manual, 3 for Configure, 4 for Discover): ");
-                var choice = Console.ReadLine()?.Trim();
+                AnsiConsole.WriteLine();
+
+                var rule = new Rule("[cyan]MODE SELECTION[/]")
+                {
+                    Justification = Justify.Center,
+                    Style = Style.Parse("cyan")
+                };
+                AnsiConsole.Write(rule);
+                AnsiConsole.WriteLine();
+
+                AnsiConsole.MarkupLine("[dim]Use arrow keys to navigate, Enter to select[/]");
+                AnsiConsole.WriteLine();
+
+                var choice = AnsiConsole.Prompt(
+                    new SelectionPrompt<string>()
+                        .Title("[white]Choose how AutoMk should process discs:[/]")
+                        .PageSize(10)
+                        .HighlightStyle(new Style(Color.Cyan1))
+                        .AddChoices(new[]
+                        {
+                            "Automatic Mode",
+                            "Manual Mode",
+                            "Configure TV Series Profiles",
+                            "Discover and Name Mode"
+                        })
+                        .UseConverter(item => item switch
+                        {
+                            "Automatic Mode" => "[green]Automatic Mode[/] [dim]- Uses OMDB API, state tracking, size filtering. Minimal interaction.[/]",
+                            "Manual Mode" => "[yellow]Manual Mode[/] [dim]- User confirms all identification, selects tracks, maps episodes.[/]",
+                            "Configure TV Series Profiles" => "[blue]Configure TV Series Profiles[/] [dim]- Pre-configure series settings.[/]",
+                            "Discover and Name Mode" => "[magenta]Discover and Name Mode[/] [dim]- Find existing MKV files and organize them.[/]",
+                            _ => item
+                        }));
 
                 switch (choice)
                 {
-                    case "1":
-                    case "":  // Default to automatic
+                    case "Automatic Mode":
                         return false;
 
-                    case "3":
+                    case "Manual Mode":
+                        return true;
+
+                    case "Configure TV Series Profiles":
                         ConfigureSeriesProfiles();
-                        // After configuration, ask again for mode
-                        Console.WriteLine("Returning to mode selection...");
-                        Console.WriteLine();
+                        AnsiConsole.MarkupLine("[dim]Returning to mode selection...[/]");
                         continue;
 
-                    case "4":
+                    case "Discover and Name Mode":
                         RunDiscoverAndNameMode();
-                        // After discovery, ask if user wants to continue or exit
-                        Console.WriteLine();
-                        Console.Write("Run discover mode again or return to mode selection? (d for Discover, m for Mode selection, q to Quit): ");
-                        var nextAction = Console.ReadLine()?.Trim().ToLowerInvariant();
-                        if (nextAction == "d")
+                        AnsiConsole.WriteLine();
+
+                        var nextAction = AnsiConsole.Prompt(
+                            new SelectionPrompt<string>()
+                                .Title("[white]What would you like to do next?[/]")
+                                .HighlightStyle(new Style(Color.Cyan1))
+                                .AddChoices(new[]
+                                {
+                                    "Run Discover Mode Again",
+                                    "Return to Mode Selection",
+                                    "Quit"
+                                }));
+
+                        if (nextAction == "Run Discover Mode Again")
                         {
-                            // Run discover mode again
                             continue;
                         }
-                        else if (nextAction == "m")
+                        else if (nextAction == "Return to Mode Selection")
                         {
-                            // Return to mode selection
-                            Console.WriteLine("Returning to mode selection...");
-                            Console.WriteLine();
+                            AnsiConsole.MarkupLine("[dim]Returning to mode selection...[/]");
                             continue;
                         }
                         else
                         {
-                            // Quit
-                            Console.WriteLine("Exiting...");
+                            AnsiConsole.MarkupLine("[dim]Exiting...[/]");
                             Environment.Exit(0);
                         }
-                        break;
-
-                    case "2":
-                        return true;
-
-                    default:
-                        Console.WriteLine("Invalid choice. Please enter 1, 2, 3, or 4.");
-                        Console.WriteLine();
                         break;
                 }
             }
@@ -295,74 +301,93 @@ namespace AutoMk
 
             while (true)
             {
-                Console.Clear();
-                DisplayHeader("TV SERIES PROFILE CONFIGURATION");
+                AnsiConsole.Clear();
+
+                var rule = new Rule("[cyan]TV SERIES PROFILE CONFIGURATION[/]")
+                {
+                    Justification = Justify.Center,
+                    Style = Style.Parse("cyan")
+                };
+                AnsiConsole.Write(rule);
+                AnsiConsole.WriteLine();
 
                 var profiles = profileService.GetAllProfilesAsync().GetAwaiter().GetResult();
 
                 if (profiles.Count > 0)
                 {
-                    Console.WriteLine("Existing Series Profiles:");
-                    Console.WriteLine();
+                    // Display existing profiles in a table
+                    var table = new Table()
+                        .Border(TableBorder.Rounded)
+                        .BorderColor(Color.Grey)
+                        .AddColumn(new TableColumn("[white]Series[/]").Centered())
+                        .AddColumn(new TableColumn("[white]Episode Size[/]").Centered())
+                        .AddColumn(new TableColumn("[white]Sorting[/]").Centered())
+                        .AddColumn(new TableColumn("[white]Double Episodes[/]").Centered())
+                        .AddColumn(new TableColumn("[white]Auto-increment[/]").Centered());
 
-                    for (int i = 0; i < profiles.Count; i++)
+                    foreach (var profile in profiles)
                     {
-                        var profile = profiles[i];
-                        Console.WriteLine($"{i + 1}. {profile.SeriesTitle}");
-                        Console.WriteLine($"   Episode Size: {profile.MinEpisodeSizeGB ?? 0:F1} - {profile.MaxEpisodeSizeGB ?? 99:F1} GB");
-                        Console.WriteLine($"   Sorting: {profile.TrackSortingStrategy}");
-                        Console.WriteLine($"   Double Episodes: {profile.DoubleEpisodeHandling}");
-                        Console.WriteLine($"   Auto-increment: {(profile.UseAutoIncrement ? "Enabled" : "Disabled")}");
-                        Console.WriteLine();
+                        table.AddRow(
+                            Markup.Escape(profile.SeriesTitle),
+                            $"{profile.MinEpisodeSizeGB ?? 0:F1} - {profile.MaxEpisodeSizeGB ?? 99:F1} GB",
+                            profile.TrackSortingStrategy.ToString(),
+                            profile.DoubleEpisodeHandling.ToString(),
+                            profile.UseAutoIncrement ? "[green]Enabled[/]" : "[dim]Disabled[/]"
+                        );
                     }
 
-                    Console.WriteLine($"{profiles.Count + 1}. Create new profile");
-                    Console.WriteLine($"{profiles.Count + 2}. Return to mode selection");
-                    Console.WriteLine();
+                    AnsiConsole.Write(table);
+                    AnsiConsole.WriteLine();
 
-                    Console.Write($"Enter your choice (1-{profiles.Count + 2}): ");
-                }
-                else
-                {
-                    Console.WriteLine("No series profiles configured yet.");
-                    Console.WriteLine();
-                    Console.WriteLine("1. Create new profile");
-                    Console.WriteLine("2. Return to mode selection");
-                    Console.WriteLine();
+                    // Build choices list
+                    var choices = profiles.Select(p => p.SeriesTitle).ToList();
+                    choices.Add("[green]Create new profile[/]");
+                    choices.Add("[dim]Return to mode selection[/]");
 
-                    Console.Write("Enter your choice (1-2): ");
-                }
+                    var selection = AnsiConsole.Prompt(
+                        new SelectionPrompt<string>()
+                            .Title("[white]Select a profile to edit, or choose an action:[/]")
+                            .PageSize(15)
+                            .HighlightStyle(new Style(Color.Cyan1))
+                            .AddChoices(choices));
 
-                var choice = Console.ReadLine()?.Trim();
-
-                if (profiles.Count > 0)
-                {
-                    if (int.TryParse(choice, out var index))
-                    {
-                        if (index >= 1 && index <= profiles.Count)
-                        {
-                            // Edit existing profile
-                            EditSeriesProfile(profileService, profiles[index - 1]);
-                        }
-                        else if (index == profiles.Count + 1)
-                        {
-                            // Create new profile
-                            CreateNewSeriesProfile(profileService);
-                        }
-                        else if (index == profiles.Count + 2)
-                        {
-                            // Return to mode selection
-                            return;
-                        }
-                    }
-                }
-                else
-                {
-                    if (choice == "1")
+                    if (selection == "[green]Create new profile[/]")
                     {
                         CreateNewSeriesProfile(profileService);
                     }
-                    else if (choice == "2")
+                    else if (selection == "[dim]Return to mode selection[/]")
+                    {
+                        return;
+                    }
+                    else
+                    {
+                        var selectedProfile = profiles.FirstOrDefault(p => p.SeriesTitle == selection);
+                        if (selectedProfile != null)
+                        {
+                            EditSeriesProfile(profileService, selectedProfile);
+                        }
+                    }
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine("[yellow]No series profiles configured yet.[/]");
+                    AnsiConsole.WriteLine();
+
+                    var selection = AnsiConsole.Prompt(
+                        new SelectionPrompt<string>()
+                            .Title("[white]What would you like to do?[/]")
+                            .HighlightStyle(new Style(Color.Cyan1))
+                            .AddChoices(new[]
+                            {
+                                "Create new profile",
+                                "Return to mode selection"
+                            }));
+
+                    if (selection == "Create new profile")
+                    {
+                        CreateNewSeriesProfile(profileService);
+                    }
+                    else
                     {
                         return;
                     }
@@ -372,21 +397,26 @@ namespace AutoMk
 
         private static void CreateNewSeriesProfile(SeriesProfileService profileService)
         {
-            Console.Clear();
-            DisplayHeader("CREATE NEW SERIES PROFILE");
+            AnsiConsole.Clear();
 
-            Console.Write("Enter series title: ");
-            var title = Console.ReadLine()?.Trim() ?? "";
-
-            if (string.IsNullOrWhiteSpace(title))
+            var rule = new Rule("[cyan]CREATE NEW SERIES PROFILE[/]")
             {
-                Console.WriteLine("Series title cannot be empty. Press any key to continue...");
-                Console.ReadKey();
-                return;
-            }
+                Justification = Justify.Center,
+                Style = Style.Parse("cyan")
+            };
+            AnsiConsole.Write(rule);
+            AnsiConsole.WriteLine();
 
-            Console.Write("Enter IMDb ID (optional, e.g., tt0106004): ");
-            var imdbId = Console.ReadLine()?.Trim() ?? "";
+            var title = AnsiConsole.Prompt(
+                new TextPrompt<string>("[white]Enter series title:[/]")
+                    .PromptStyle("green")
+                    .ValidationErrorMessage("[red]Series title cannot be empty[/]")
+                    .Validate(t => !string.IsNullOrWhiteSpace(t)));
+
+            var imdbId = AnsiConsole.Prompt(
+                new TextPrompt<string>("[white]Enter IMDb ID (optional, e.g., tt0106004):[/]")
+                    .PromptStyle("green")
+                    .AllowEmpty());
 
             // Use a mock console interaction service for the profile creation
             var mockLogger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<ConsoleInteractionService>();
@@ -401,37 +431,48 @@ namespace AutoMk
 
             profileService.CreateOrUpdateProfileAsync(profile).GetAwaiter().GetResult();
 
-            Console.WriteLine();
-            Console.WriteLine("Profile created successfully! Press any key to continue...");
-            Console.ReadKey();
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[green]Profile created successfully![/]");
+            AnsiConsole.MarkupLine("[dim]Press any key to continue...[/]");
+            Console.ReadKey(true);
         }
 
         private static void EditSeriesProfile(SeriesProfileService profileService, SeriesProfile profile)
         {
-            Console.Clear();
-            DisplayHeader($"EDIT PROFILE: {profile.SeriesTitle}");
+            AnsiConsole.Clear();
 
-            Console.WriteLine("1. Delete this profile");
-            Console.WriteLine("2. Edit settings");
-            Console.WriteLine("3. Return to profile list");
-            Console.WriteLine();
+            var rule = new Rule($"[cyan]EDIT PROFILE: {Markup.Escape(profile.SeriesTitle)}[/]")
+            {
+                Justification = Justify.Center,
+                Style = Style.Parse("cyan")
+            };
+            AnsiConsole.Write(rule);
+            AnsiConsole.WriteLine();
 
-            Console.Write("Enter your choice (1-3): ");
-            var choice = Console.ReadLine()?.Trim();
+            var choice = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("[white]What would you like to do?[/]")
+                    .HighlightStyle(new Style(Color.Cyan1))
+                    .AddChoices(new[]
+                    {
+                        "Edit settings",
+                        "Delete this profile",
+                        "Return to profile list"
+                    }));
 
             switch (choice)
             {
-                case "1":
-                    Console.Write("Are you sure you want to delete this profile? (y/n): ");
-                    if (Console.ReadLine()?.Trim().ToLowerInvariant() == "y")
+                case "Delete this profile":
+                    if (AnsiConsole.Confirm("[yellow]Are you sure you want to delete this profile?[/]", false))
                     {
                         profileService.DeleteProfileAsync(profile.SeriesTitle).GetAwaiter().GetResult();
-                        Console.WriteLine("Profile deleted. Press any key to continue...");
-                        Console.ReadKey();
+                        AnsiConsole.MarkupLine("[green]Profile deleted.[/]");
+                        AnsiConsole.MarkupLine("[dim]Press any key to continue...[/]");
+                        Console.ReadKey(true);
                     }
                     break;
 
-                case "2":
+                case "Edit settings":
                     // Re-run the profile creation process to update settings
                     var mockLogger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<ConsoleInteractionService>();
                     var mockPromptService = new ConsolePromptService();
@@ -447,9 +488,10 @@ namespace AutoMk
 
                     profileService.CreateOrUpdateProfileAsync(updatedProfile).GetAwaiter().GetResult();
 
-                    Console.WriteLine();
-                    Console.WriteLine("Profile updated successfully! Press any key to continue...");
-                    Console.ReadKey();
+                    AnsiConsole.WriteLine();
+                    AnsiConsole.MarkupLine("[green]Profile updated successfully![/]");
+                    AnsiConsole.MarkupLine("[dim]Press any key to continue...[/]");
+                    Console.ReadKey(true);
                     break;
             }
         }
@@ -518,7 +560,7 @@ namespace AutoMk
                 var processes = Process.GetProcessesByName("makemkvcon64");
                 if (processes.Length > 0)
                 {
-                    Console.WriteLine($"Found {processes.Length} existing HandBrakeCLI process(es). Cleaning up...");
+                    AnsiConsole.MarkupLine($"[yellow]Found {processes.Length} existing makemkvcon64 process(es). Cleaning up...[/]");
 
                     foreach (var process in processes)
                     {
@@ -532,7 +574,7 @@ namespace AutoMk
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"Warning: Could not kill HandBrakeCLI process {process.Id}: {ex.Message}");
+                            AnsiConsole.MarkupLine($"[yellow]Warning:[/] Could not kill makemkvcon64 process {process.Id}: {Markup.Escape(ex.Message)}");
                         }
                         finally
                         {
@@ -543,17 +585,8 @@ namespace AutoMk
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error during process cleanup: {ex.Message}");
+                AnsiConsole.MarkupLine($"[red]Error during process cleanup:[/] {Markup.Escape(ex.Message)}");
             }
-        }
-
-        private static void DisplayHeader(string title)
-        {
-            var border = new string('=', title.Length + 4);
-            Console.WriteLine(border);
-            Console.WriteLine($"  {title}  ");
-            Console.WriteLine(border);
-            Console.WriteLine();
         }
     }
 }
