@@ -357,29 +357,24 @@ public class MakeMkvService : IMakeMkvService
     private async Task<bool> RipSingleTitleAsync(AkDriveInfo drive, AkTitle title, string outputPath)
     {
         var arguments = $"-r --progress=-same mkv disc:{drive.Id} {title.Id} \"{outputPath}\"";
-        using var process = _processManager.CreateProcess(arguments);
 
-        if (process == null)
+        return await _progressReporter.RunWithProgressAsync($"Ripping {title.Name}", async (progressHandler) =>
         {
-            return false;
-        }
+            using var process = _processManager.CreateProcess(arguments);
 
-        _progressReporter.StartProgress($"Ripping {title.Name}");
+            if (process == null)
+            {
+                return false;
+            }
 
-        try
-        {
             var success = await _processManager.ExecuteProcessAsync(
                 process,
-                outputHandler: _progressReporter.ParseProgressLine,
+                outputHandler: progressHandler,
                 errorHandler: line => _logger.LogWarning("MakeMKV error: {Error}", line)
             );
 
             return success;
-        }
-        finally
-        {
-            _progressReporter.CompleteProgress();
-        }
+        });
     }
 
     private void ParseDriveInfo(string line, Dictionary<string, AkDriveInfo> drives)

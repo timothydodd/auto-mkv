@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Threading.Tasks;
 using AutoMk.Models;
 using AutoMk.Utilities;
 using Microsoft.Extensions.Logging;
@@ -13,7 +14,8 @@ public class MakeMkvProgressReporter : IDisposable
     private readonly MakeMkvStatus _status = new();
     private string _currentTitle = "";
     private bool _isActive;
-    private float _lastPercentage = -1;
+    private ProgressTask? _progressTask;
+    private ProgressContext? _progressContext;
 
     public MakeMkvProgressReporter(ILogger<MakeMkvProgressReporter> logger)
     {
@@ -22,53 +24,78 @@ public class MakeMkvProgressReporter : IDisposable
 
     public MakeMkvStatus Status => _status;
 
+    /// <summary>
+    /// Executes an async operation with Spectre.Console progress display
+    /// </summary>
+    public async Task<T> RunWithProgressAsync<T>(string title, Func<Action<string>, Task<T>> operation)
+    {
+        _currentTitle = title;
+        _status.Converting = true;
+        _isActive = true;
+
+        T result = default!;
+
+        await AnsiConsole.Progress()
+            .AutoRefresh(true)
+            .AutoClear(false)
+            .HideCompleted(false)
+            .Columns(new ProgressColumn[]
+            {
+                new TaskDescriptionColumn(),
+                new ProgressBarColumn(),
+                new PercentageColumn(),
+                new RemainingTimeColumn(),
+                new SpinnerColumn(),
+            })
+            .StartAsync(async ctx =>
+            {
+                _progressContext = ctx;
+                _progressTask = ctx.AddTask($"[cyan]{Markup.Escape(title)}[/]", maxValue: 100);
+
+                // Execute the operation, passing our ParseProgressLine as the output handler
+                result = await operation(ParseProgressLine);
+
+                // Ensure progress shows 100% on completion
+                _progressTask.Value = 100;
+            });
+
+        _isActive = false;
+        _progressTask = null;
+        _progressContext = null;
+        _status.Converting = false;
+
+        AnsiConsole.MarkupLine($"[green]✓ Completed:[/] [white]{Markup.Escape(_currentTitle)}[/]");
+
+        return result;
+    }
+
     public void StartProgress(string title, int maxTicks = 100)
     {
         _currentTitle = title;
         _status.Converting = true;
         _isActive = true;
-        _lastPercentage = -1;
 
-        AnsiConsole.MarkupLine($"[cyan]Starting:[/] [white]{Markup.Escape(title)}[/]");
+        // This is called when not using RunWithProgressAsync
+        // Fall back to simple output
+        AnsiConsole.MarkupLine($"[cyan]Ripping:[/] [white]{Markup.Escape(title)}[/]");
     }
 
     public void UpdateProgress(float percentage)
     {
         _status.Percentage = percentage;
 
-        if (_isActive)
+        if (_progressTask != null)
         {
-            // Only update display if percentage changed significantly (reduces flicker)
-            if (Math.Abs(percentage - _lastPercentage) < 0.5f && _lastPercentage >= 0)
-                return;
+            _progressTask.Value = percentage;
 
-            _lastPercentage = percentage;
-
-            // Build status line with available information
-            var statusParts = new System.Collections.Generic.List<string>();
-            statusParts.Add($"[yellow]{percentage:F1}%[/]");
-
-            if (_status.CurrentFps > 0)
-                statusParts.Add($"[dim]{_status.CurrentFps:F1} fps[/]");
-
+            // Update description with ETA if available
             if (_status.Estimated != TimeSpan.Zero)
             {
                 var eta = _status.Estimated.TotalHours >= 1
                     ? $"{_status.Estimated.Hours:D2}h {_status.Estimated.Minutes:D2}m"
                     : $"{_status.Estimated.Minutes:D2}m {_status.Estimated.Seconds:D2}s";
-                statusParts.Add($"[cyan]ETA: {eta}[/]");
+                _progressTask.Description = $"[cyan]{Markup.Escape(_currentTitle)}[/] [dim](ETA: {eta})[/]";
             }
-
-            var statusLine = string.Join(" [dim]|[/] ", statusParts);
-
-            // Create a colorful progress bar representation
-            var progressWidth = 30;
-            var filledWidth = (int)(percentage / 100.0 * progressWidth);
-            var emptyWidth = progressWidth - filledWidth;
-            var progressBar = $"[green]{new string('━', filledWidth)}[/][dim]{new string('─', emptyWidth)}[/]";
-
-            // Use carriage return to update in place with markup
-            AnsiConsole.Markup($"\r  [{progressBar}] {statusLine}          ");
         }
     }
 
@@ -112,15 +139,13 @@ public class MakeMkvProgressReporter : IDisposable
 
     public void CompleteProgress()
     {
-        if (_isActive)
+        if (_isActive && _progressTask == null)
         {
-            // Clear the progress line and show completion
-            AnsiConsole.WriteLine(); // Move to next line
-            AnsiConsole.MarkupLine($"[green]Completed:[/] [white]{Markup.Escape(_currentTitle)}[/]");
+            // Only show completion message if not using Spectre Progress
+            AnsiConsole.MarkupLine($"[green]✓ Completed:[/] [white]{Markup.Escape(_currentTitle)}[/]");
         }
 
         _isActive = false;
-        _lastPercentage = -1;
         _status.Converting = false;
         _status.Percentage = 0;
         _status.CurrentFps = 0;
@@ -132,10 +157,6 @@ public class MakeMkvProgressReporter : IDisposable
 
     public void Dispose()
     {
-        if (_isActive)
-        {
-            AnsiConsole.WriteLine(); // Ensure we're on a new line
-        }
         _isActive = false;
     }
 }
