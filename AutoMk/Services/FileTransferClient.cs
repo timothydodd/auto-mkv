@@ -362,13 +362,27 @@ public class ProgressTrackingStreamContent : HttpContent
             var now = DateTime.UtcNow;
             if ((now - _lastUpdateTime).TotalMilliseconds >= 500)
             {
-                UpdateProgress();
+                try
+                {
+                    UpdateProgress();
+                }
+                catch
+                {
+                    // Ignore progress update errors - don't let UI issues interrupt the transfer
+                }
                 _lastUpdateTime = now;
             }
         }
 
         // Final progress update
-        UpdateProgress();
+        try
+        {
+            UpdateProgress();
+        }
+        catch
+        {
+            // Ignore progress update errors
+        }
     }
 
     private void UpdateProgress()

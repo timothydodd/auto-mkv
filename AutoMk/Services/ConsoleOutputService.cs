@@ -220,7 +220,7 @@ public class ConsoleOutputService : IConsoleOutputService
             var progressBar = $"[green]{new string('━', filledWidth)}[/][dim]{new string('─', emptyWidth)}[/]";
 
             // Use carriage return to update in place with Spectre markup
-            AnsiConsole.Markup($"\r[dim]{Markup.Escape(fileName)}[/] [{progressBar}] [yellow]{percentage:F1}%[/] [dim]({transferredGB:F2}/{totalGB:F2} GB)[/] [cyan]{transferRateMBps:F1} MB/s[/] [dim]ETA:[/] [white]{timeRemainingStr}[/]    ");
+            AnsiConsole.Markup($"\r[dim]{Markup.Escape(fileName)}[/] [[{progressBar}]] [yellow]{percentage:F1}%[/] [dim]({transferredGB:F2}/{totalGB:F2} GB)[/] [cyan]{transferRateMBps:F1} MB/s[/] [dim]ETA:[/] [white]{timeRemainingStr}[/]    ");
         }
     }
 }
