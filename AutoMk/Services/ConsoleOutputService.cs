@@ -229,8 +229,12 @@ public class ConsoleOutputService : IConsoleOutputService
             var emptyWidth = progressWidth - filledWidth;
             var progressBar = $"[green]{new string('━', filledWidth)}[/][dim]{new string('─', emptyWidth)}[/]";
 
-            // Use carriage return to update in place with Spectre markup
-            AnsiConsole.Markup($"\r[dim]{Markup.Escape(fileName)}[/] [[{progressBar}]] [yellow]{percentage:F1}%[/] [dim]({transferredGB:F2}/{totalGB:F2} GB)[/] [cyan]{transferRateMBps:F1} MB/s[/] [dim]ETA:[/] [white]{timeRemainingStr}[/]    ");
+            // Truncate filename if too long
+            var displayName = fileName.Length > 30 ? fileName.Substring(0, 27) + "..." : fileName.PadRight(30);
+
+            // Clear line and write progress (use Console.Write for reliable \r behavior)
+            Console.Write("\r" + new string(' ', Console.WindowWidth - 1) + "\r");
+            AnsiConsole.Markup($"[dim]{Markup.Escape(displayName)}[/] [[{progressBar}]] [yellow]{percentage,5:F1}%[/] [cyan]{transferRateMBps,5:F1} MB/s[/] [dim]ETA:[/] {timeRemainingStr,-12}");
         }
     }
 

@@ -64,14 +64,14 @@ public class MakeMkvProgressReporter : IDisposable
             if (_currentTaskId.HasValue)
             {
                 _progressManager.CompleteProgressTask(_currentTaskId.Value);
+                _progressManager.Log($"Completed: {title}", ProgressLogLevel.Success);
             }
-            else if (!_progressManager.IsActive)
+            else
             {
-                // Fallback: show completion on console
-                AnsiConsole.MarkupLine($"\r[green]✓ Completed:[/] [white]{Markup.Escape(title)}[/] [dim](100%)[/]          ");
+                // Clear line and show completion on console
+                Console.Write("\r" + new string(' ', Console.WindowWidth - 1) + "\r");
+                AnsiConsole.MarkupLine($"[green]✓ Completed:[/] [white]{Markup.Escape(title)}[/]");
             }
-
-            _progressManager.Log($"Completed: {title}", ProgressLogLevel.Success);
         }
         catch (Exception)
         {
@@ -137,38 +137,40 @@ public class MakeMkvProgressReporter : IDisposable
 
             _progressManager.UpdateProgress(_currentTaskId.Value, percentage, description);
         }
-        else if (!_progressManager.IsActive && _isActive)
+        else if (_isActive)
         {
-            // Fallback: show progress on console (update every 1%)
+            // Direct console output (bypass ProgressManager)
             var roundedPercentage = (int)percentage;
             if (roundedPercentage > _lastReportedPercentage)
             {
                 _lastReportedPercentage = roundedPercentage;
 
                 // Build progress bar
-                var barWidth = 30;
+                var barWidth = 25;
                 var filledWidth = (int)(percentage / 100.0 * barWidth);
                 var emptyWidth = barWidth - filledWidth;
-                var progressBar = new string('━', filledWidth) + new string('─', emptyWidth);
+                var progressBar = $"[green]{new string('━', filledWidth)}[/][dim]{new string('─', emptyWidth)}[/]";
 
                 // Build ETA string
-                var etaStr = "";
+                var etaStr = "            "; // Fixed width placeholder
                 if (_status.Estimated != TimeSpan.Zero)
                 {
                     var eta = _status.Estimated.TotalHours >= 1
                         ? $"{_status.Estimated.Hours:D2}h {_status.Estimated.Minutes:D2}m"
                         : $"{_status.Estimated.Minutes:D2}m {_status.Estimated.Seconds:D2}s";
-                    etaStr = $" ETA: {eta}";
+                    etaStr = eta.PadRight(12);
                 }
 
-                // Use carriage return to overwrite the line
-                AnsiConsole.Markup($"\r[cyan]►[/] [white]{Markup.Escape(_currentTitle)}[/] [{progressBar}] [yellow]{percentage:F1}%[/]{etaStr}    ");
+                // Clear line and write progress
+                Console.Write("\r" + new string(' ', Console.WindowWidth - 1) + "\r");
+                AnsiConsole.Markup($"[cyan]Ripping:[/] [[{progressBar}]] [yellow]{percentage,5:F1}%[/] [dim]ETA:[/] {etaStr}");
             }
         }
     }
 
     /// <summary>
     /// Parses MakeMKV progress output lines (PRGV: and PRGT:).
+    /// PRGV format: PRGV:id,current,total,... - split by comma gives ["PRGV:id", "current", "total", ...]
     /// </summary>
     public void ParseProgressLine(string line)
     {
@@ -179,8 +181,11 @@ public class MakeMkvProgressReporter : IDisposable
         {
             if (line.StartsWith("PRGV:"))
             {
+                // Split by comma: "PRGV:0,45,100,0,0" -> ["PRGV:0", "45", "100", "0", "0"]
                 var parts = line.Split(',');
-                if (parts.Length >= 3 && int.TryParse(parts[1], out var current) && int.TryParse(parts[2], out var total))
+                if (parts.Length >= 3 &&
+                    int.TryParse(parts[1], out var current) &&
+                    int.TryParse(parts[2], out var total))
                 {
                     var percentage = total > 0 ? (float)current / total * 100 : 0;
                     UpdateProgress(percentage);
