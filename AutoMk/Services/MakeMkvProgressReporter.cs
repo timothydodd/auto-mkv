@@ -21,6 +21,7 @@ public class MakeMkvProgressReporter : IDisposable
     private string _currentTitle = "";
     private bool _isActive;
     private Guid? _currentTaskId;
+    private float _lastReportedPercentage = -1;
 
     public MakeMkvProgressReporter(
         ILogger<MakeMkvProgressReporter> logger,
@@ -34,18 +35,23 @@ public class MakeMkvProgressReporter : IDisposable
 
     /// <summary>
     /// Executes an async operation with progress tracking via ProgressManager.
+    /// Falls back to console output when ProgressManager is not active.
     /// </summary>
     public async Task<T> RunWithProgressAsync<T>(string title, Func<Action<string>, Task<T>> operation)
     {
         _currentTitle = title;
         _status.Converting = true;
         _isActive = true;
+        _lastReportedPercentage = -1;
 
-        // Create progress task via ProgressManager
-        _currentTaskId = _progressManager.CreateProgressTask(
-            $"Ripping: {title}",
-            maxValue: 100,
-            category: "MakeMKV");
+        // Create progress task via ProgressManager if active
+        if (_progressManager.IsActive)
+        {
+            _currentTaskId = _progressManager.CreateProgressTask(
+                $"Ripping: {title}",
+                maxValue: 100,
+                category: "MakeMKV");
+        }
 
         T result = default!;
 
@@ -58,6 +64,11 @@ public class MakeMkvProgressReporter : IDisposable
             if (_currentTaskId.HasValue)
             {
                 _progressManager.CompleteProgressTask(_currentTaskId.Value);
+            }
+            else if (!_progressManager.IsActive)
+            {
+                // Fallback: show completion on console
+                AnsiConsole.MarkupLine($"\r[green]✓ Completed:[/] [white]{Markup.Escape(title)}[/] [dim](100%)[/]          ");
             }
 
             _progressManager.Log($"Completed: {title}", ProgressLogLevel.Success);
@@ -125,6 +136,34 @@ public class MakeMkvProgressReporter : IDisposable
             }
 
             _progressManager.UpdateProgress(_currentTaskId.Value, percentage, description);
+        }
+        else if (!_progressManager.IsActive && _isActive)
+        {
+            // Fallback: show progress on console (update every 1%)
+            var roundedPercentage = (int)percentage;
+            if (roundedPercentage > _lastReportedPercentage)
+            {
+                _lastReportedPercentage = roundedPercentage;
+
+                // Build progress bar
+                var barWidth = 30;
+                var filledWidth = (int)(percentage / 100.0 * barWidth);
+                var emptyWidth = barWidth - filledWidth;
+                var progressBar = new string('━', filledWidth) + new string('─', emptyWidth);
+
+                // Build ETA string
+                var etaStr = "";
+                if (_status.Estimated != TimeSpan.Zero)
+                {
+                    var eta = _status.Estimated.TotalHours >= 1
+                        ? $"{_status.Estimated.Hours:D2}h {_status.Estimated.Minutes:D2}m"
+                        : $"{_status.Estimated.Minutes:D2}m {_status.Estimated.Seconds:D2}s";
+                    etaStr = $" ETA: {eta}";
+                }
+
+                // Use carriage return to overwrite the line
+                AnsiConsole.Markup($"\r[cyan]►[/] [white]{Markup.Escape(_currentTitle)}[/] [{progressBar}] [yellow]{percentage:F1}%[/]{etaStr}    ");
+            }
         }
     }
 
