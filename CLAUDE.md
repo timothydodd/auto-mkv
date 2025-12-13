@@ -114,44 +114,46 @@ AutoMk/
 │   ├── ConsolePromptModels.cs     # NEW - Console UI prompt definitions
 │   └── ProcessingResult.cs        # NEW - Consistent error handling wrapper
 ├── Interfaces/           # Service interfaces
-│   ├── IConsolePromptService.cs        # NEW - Console UI framework
-│   ├── IEnhancedOmdbService.cs         # NEW - Cached OMDB operations
-│   ├── IFileDiscoveryService.cs        # NEW - File discovery and verification
+│   ├── IConsolePromptService.cs        # Console UI framework
+│   ├── IDiscoverAndNameService.cs      # Discover and Name mode interface
+│   ├── IEnhancedOmdbService.cs         # Cached OMDB operations
+│   ├── IFileDiscoveryService.cs        # File discovery and verification
 │   ├── IFileTransferClient.cs
 │   ├── IMakeMkvService.cs
 │   ├── IMediaIdentificationService.cs
 │   ├── IMediaMoverService.cs
 │   ├── IMediaNamingService.cs
-│   ├── IMediaSelectionService.cs       # NEW - Interactive media selection
+│   ├── IMediaSelectionService.cs       # Interactive media selection
 │   ├── IMediaStateManager.cs
-│   ├── IMediaTypePredictionService.cs  # NEW
+│   ├── IMediaTypePredictionService.cs
 │   ├── IOmdbClient.cs
-│   ├── IPatternLearningService.cs      # NEW - Machine learning for user patterns
-│   ├── ISeasonInfoCacheService.cs      # NEW - Season caching
-│   ├── ISeriesConfigurationService.cs  # NEW - TV series configuration UI
-│   └── ISeriesProfileService.cs        # NEW
+│   ├── IPatternLearningService.cs      # Machine learning for user patterns
+│   ├── ISeasonInfoCacheService.cs      # Season caching
+│   ├── ISeriesConfigurationService.cs  # TV series configuration UI
+│   └── ISeriesProfileService.cs
 ├── Services/            # Service implementations
 │   ├── ConsoleInteractionService.cs    # Enhanced with new prompts
-│   ├── ConsolePromptService.cs         # NEW - Console UI framework implementation
-│   ├── EnhancedOmdbService.cs          # NEW - Cached OMDB operations
-│   ├── FileDiscoveryService.cs         # NEW - File discovery and verification
+│   ├── ConsolePromptService.cs         # Console UI framework implementation
+│   ├── DiscoverAndNameService.cs       # Discover and Name mode implementation
+│   ├── EnhancedOmdbService.cs          # Cached OMDB operations
+│   ├── FileDiscoveryService.cs         # File discovery and verification
 │   ├── FileTransferClient.cs
 │   ├── MakeMkvService.cs
 │   ├── MakeMkvProcessManager.cs
 │   ├── MakeMkvOutputParser.cs
 │   ├── MakeMkvProgressReporter.cs
-│   ├── ManualModeService.cs
+│   ├── ManualModeService.cs            # Manual mode implementation
 │   ├── MediaIdentificationService.cs   # Enhanced to use caching
 │   ├── MediaMoverService.cs
 │   ├── MediaNamingService.cs
-│   ├── MediaSelectionService.cs        # NEW - Interactive media selection
+│   ├── MediaSelectionService.cs        # Interactive media selection
 │   ├── MediaStateManager.cs
-│   ├── MediaTypePredictionService.cs   # NEW
+│   ├── MediaTypePredictionService.cs
 │   ├── OmdbClient.cs
-│   ├── PatternLearningService.cs       # NEW - Machine learning for user patterns
-│   ├── SeasonInfoCacheService.cs       # NEW - Season data caching
-│   ├── SeriesConfigurationService.cs   # NEW - TV series configuration UI
-│   └── SeriesProfileService.cs         # NEW
+│   ├── PatternLearningService.cs       # Machine learning for user patterns
+│   ├── SeasonInfoCacheService.cs       # Season data caching
+│   ├── SeriesConfigurationService.cs   # TV series configuration UI
+│   └── SeriesProfileService.cs
 ├── Cache/               # OMDB season data cache (runtime) - NEW
 │   └── season_info_cache.json
 ├── Profiles/            # Persisted series configurations (runtime)
@@ -233,13 +235,55 @@ The application includes machine learning capabilities for TV series processing 
 ### User Interaction Workflows
 
 #### Startup Mode Selection
-Users can choose between:
+Users choose between three modes at startup:
 - **Automatic Mode**: Minimal interaction, uses saved profiles
 - **Manual Mode**: Full control over track selection and naming
-- **Configure TV Series Profiles**: Pre-configure series settings
+- **Discover and Name Mode**: Organize existing MKV files without ripping
 
-#### TV Series Profile Configuration (NEW)
-When a new TV series is detected, all settings are configured upfront:
+#### Mode 1: Automatic Mode (Minimal Prompts)
+**Purpose:** Hands-off continuous disc monitoring and processing
+
+**Process Flow:**
+1. **Disc Detection** → MakeMKV scans disc for titles
+2. **Pre-Identify Media** → OMDB API lookup based on disc name, optional confirmation
+3. **TV Series Configuration** (new series only):
+   - If existing profile/state exists → use saved settings
+   - If new series → prompt for complete profile (episode size range, track sorting, double episode handling, auto-increment)
+4. **Track Selection** (automatic):
+   - Movies: Largest track only
+   - TV Series: Filter by episode size range
+5. **Pre-Rip Confirmation**:
+   - Movies: Skipped (auto-proceed)
+   - TV Series: Shows summary, can proceed/modify/skip (can enable "Don't ask again")
+6. **Rip** → Process & Rename → File Transfer (if enabled) → Eject Disc
+
+#### Mode 2: Manual Mode (More Prompts)
+**Purpose:** Full user control over every decision
+
+**Process Flow:**
+1. **Disc Detection** → MakeMKV scans disc for titles
+2. **Identify Media with Confirmation** → Shows OMDB results, user confirms or searches manually
+3. **Media Type Selection** → If unclear, user chooses Movie or TV Series
+4. **Track Selection** (user picks) → Displays all tracks in table, user multi-selects
+5. **Episode Mapping** (TV Series only) → For each track: enter season (1-50) and episode (1-999)
+6. **Rip Selected Tracks** → Process & Rename → Move to organized folders → Eject Disc
+
+#### Mode 3: Discover and Name Mode (File Organization)
+**Purpose:** Organize existing MKV files without ripping
+
+**Process Flow:**
+1. **Enter Directory Path** → Search recursively for `*.mkv` files
+2. **Display File Count**
+3. **For Each File:**
+   - Show: filename, size (GB), full path
+   - "Does this file need to be identified?"
+     - **YES**: Interactive OMDB search → generate Plex name → move to organized folder
+     - **NO**: Option to move to file server with original name or skip
+4. **Summary Table** → Total files, processed count, skipped count
+5. **Return to Mode Selection** → Run Again / Mode Selection / Quit
+
+#### TV Series Profile Configuration
+When a new TV series is detected in Automatic Mode, all settings are configured upfront:
 1. **Episode Size Range**: Custom min/max GB for filtering
 2. **Track Sorting**: By MakeMKV order or MPLS filename
 3. **Double Episode Handling**: Auto-detect, always single, or always double
@@ -248,8 +292,8 @@ When a new TV series is detected, all settings are configured upfront:
 
 These profiles are saved and reused for future discs from the same series.
 
-#### Pre-Rip Confirmation (NEW)
-Before ripping begins, users see a summary of:
+#### Pre-Rip Confirmation
+Before ripping begins in Automatic Mode, users see a summary of:
 - Media title and type
 - Number of tracks to rip
 - Size filtering settings

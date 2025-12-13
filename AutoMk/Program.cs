@@ -234,14 +234,12 @@ namespace AutoMk
                         {
                             "Automatic Mode",
                             "Manual Mode",
-                            "Configure TV Series Profiles",
                             "Discover and Name Mode"
                         })
                         .UseConverter(item => item switch
                         {
                             "Automatic Mode" => "[green]Automatic Mode[/] [dim]- Uses OMDB API, state tracking, size filtering. Minimal interaction.[/]",
                             "Manual Mode" => "[yellow]Manual Mode[/] [dim]- User confirms all identification, selects tracks, maps episodes.[/]",
-                            "Configure TV Series Profiles" => "[blue]Configure TV Series Profiles[/] [dim]- Pre-configure series settings.[/]",
                             "Discover and Name Mode" => "[magenta]Discover and Name Mode[/] [dim]- Find existing MKV files and organize them.[/]",
                             _ => item
                         }));
@@ -253,11 +251,6 @@ namespace AutoMk
 
                     case "Manual Mode":
                         return true;
-
-                    case "Configure TV Series Profiles":
-                        ConfigureSeriesProfiles();
-                        AnsiConsole.MarkupLine("[dim]Returning to mode selection...[/]");
-                        continue;
 
                     case "Discover and Name Mode":
                         RunDiscoverAndNameMode();
@@ -290,213 +283,6 @@ namespace AutoMk
                         }
                         break;
                 }
-            }
-        }
-
-        private static void ConfigureSeriesProfiles()
-        {
-            // Create a temporary service provider for the profile configuration
-            var services = new ServiceCollection();
-
-            services.AddSingleton<SeriesProfileService>();
-
-            var serviceProvider = services.BuildServiceProvider();
-            var profileService = serviceProvider.GetRequiredService<SeriesProfileService>();
-
-            while (true)
-            {
-                AnsiConsole.Clear();
-
-                var rule = new Rule("[cyan]TV SERIES PROFILE CONFIGURATION[/]")
-                {
-                    Justification = Justify.Center,
-                    Style = Style.Parse("cyan")
-                };
-                AnsiConsole.Write(rule);
-                AnsiConsole.WriteLine();
-
-                var profiles = profileService.GetAllProfilesAsync().GetAwaiter().GetResult();
-
-                if (profiles.Count > 0)
-                {
-                    // Display existing profiles in a table
-                    var table = new Table()
-                        .Border(TableBorder.Rounded)
-                        .BorderColor(Color.Grey)
-                        .AddColumn(new TableColumn("[white]Series[/]").Centered())
-                        .AddColumn(new TableColumn("[white]Episode Size[/]").Centered())
-                        .AddColumn(new TableColumn("[white]Sorting[/]").Centered())
-                        .AddColumn(new TableColumn("[white]Double Episodes[/]").Centered())
-                        .AddColumn(new TableColumn("[white]Auto-increment[/]").Centered());
-
-                    foreach (var profile in profiles)
-                    {
-                        table.AddRow(
-                            Markup.Escape(profile.SeriesTitle),
-                            $"{profile.MinEpisodeSizeGB ?? 0:F1} - {profile.MaxEpisodeSizeGB ?? 99:F1} GB",
-                            profile.TrackSortingStrategy.ToString(),
-                            profile.DoubleEpisodeHandling.ToString(),
-                            profile.UseAutoIncrement ? "[green]Enabled[/]" : "[dim]Disabled[/]"
-                        );
-                    }
-
-                    AnsiConsole.Write(table);
-                    AnsiConsole.WriteLine();
-
-                    // Build choices list
-                    var choices = profiles.Select(p => p.SeriesTitle).ToList();
-                    choices.Add("[green]Create new profile[/]");
-                    choices.Add("[dim]Return to mode selection[/]");
-
-                    var selection = AnsiConsole.Prompt(
-                        new SelectionPrompt<string>()
-                            .Title("[white]Select a profile to edit, or choose an action:[/]")
-                            .PageSize(15)
-                            .HighlightStyle(new Style(Color.Cyan1))
-                            .AddChoices(choices));
-
-                    if (selection == "[green]Create new profile[/]")
-                    {
-                        CreateNewSeriesProfile(profileService);
-                    }
-                    else if (selection == "[dim]Return to mode selection[/]")
-                    {
-                        return;
-                    }
-                    else
-                    {
-                        var selectedProfile = profiles.FirstOrDefault(p => p.SeriesTitle == selection);
-                        if (selectedProfile != null)
-                        {
-                            EditSeriesProfile(profileService, selectedProfile);
-                        }
-                    }
-                }
-                else
-                {
-                    AnsiConsole.MarkupLine("[yellow]No series profiles configured yet.[/]");
-                    AnsiConsole.WriteLine();
-
-                    var selection = AnsiConsole.Prompt(
-                        new SelectionPrompt<string>()
-                            .Title("[white]What would you like to do?[/]")
-                            .HighlightStyle(new Style(Color.Cyan1))
-                            .AddChoices(new[]
-                            {
-                                "Create new profile",
-                                "Return to mode selection"
-                            }));
-
-                    if (selection == "Create new profile")
-                    {
-                        CreateNewSeriesProfile(profileService);
-                    }
-                    else
-                    {
-                        return;
-                    }
-                }
-            }
-        }
-
-        private static void CreateNewSeriesProfile(SeriesProfileService profileService)
-        {
-            AnsiConsole.Clear();
-
-            var rule = new Rule("[cyan]CREATE NEW SERIES PROFILE[/]")
-            {
-                Justification = Justify.Center,
-                Style = Style.Parse("cyan")
-            };
-            AnsiConsole.Write(rule);
-            AnsiConsole.WriteLine();
-
-            var title = AnsiConsole.Prompt(
-                new TextPrompt<string>("[white]Enter series title:[/]")
-                    .PromptStyle("green")
-                    .ValidationErrorMessage("[red]Series title cannot be empty[/]")
-                    .Validate(t => !string.IsNullOrWhiteSpace(t)));
-
-            var imdbId = AnsiConsole.Prompt(
-                new TextPrompt<string>("[white]Enter IMDb ID (optional, e.g., tt0106004):[/]")
-                    .PromptStyle("green")
-                    .AllowEmpty());
-
-            // Use a mock console interaction service for the profile creation
-            var mockLogger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<ConsoleInteractionService>();
-            var mockPromptService = new ConsolePromptService();
-            var mockSeriesLogger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<SeriesConfigurationService>();
-            var mockPatternLogger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<PatternLearningService>();
-            var mockPatternService = new PatternLearningService(null!, mockPatternLogger);
-            var mockSeriesService = new SeriesConfigurationService(mockSeriesLogger, mockPromptService, mockPatternService);
-            var consoleService = new ConsoleInteractionService(null!, mockLogger, mockPromptService, mockSeriesService);
-
-            var profile = consoleService.PromptForCompleteSeriesProfile(title, "Manual Configuration");
-
-            profileService.CreateOrUpdateProfileAsync(profile).GetAwaiter().GetResult();
-
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[green]Profile created successfully![/]");
-            AnsiConsole.MarkupLine("[dim]Press any key to continue...[/]");
-            Console.ReadKey(true);
-        }
-
-        private static void EditSeriesProfile(SeriesProfileService profileService, SeriesProfile profile)
-        {
-            AnsiConsole.Clear();
-
-            var rule = new Rule($"[cyan]EDIT PROFILE: {Markup.Escape(profile.SeriesTitle)}[/]")
-            {
-                Justification = Justify.Center,
-                Style = Style.Parse("cyan")
-            };
-            AnsiConsole.Write(rule);
-            AnsiConsole.WriteLine();
-
-            var choice = AnsiConsole.Prompt(
-                new SelectionPrompt<string>()
-                    .Title("[white]What would you like to do?[/]")
-                    .HighlightStyle(new Style(Color.Cyan1))
-                    .AddChoices(new[]
-                    {
-                        "Edit settings",
-                        "Delete this profile",
-                        "Return to profile list"
-                    }));
-
-            switch (choice)
-            {
-                case "Delete this profile":
-                    if (AnsiConsole.Confirm("[yellow]Are you sure you want to delete this profile?[/]", false))
-                    {
-                        profileService.DeleteProfileAsync(profile.SeriesTitle).GetAwaiter().GetResult();
-                        AnsiConsole.MarkupLine("[green]Profile deleted.[/]");
-                        AnsiConsole.MarkupLine("[dim]Press any key to continue...[/]");
-                        Console.ReadKey(true);
-                    }
-                    break;
-
-                case "Edit settings":
-                    // Re-run the profile creation process to update settings
-                    var mockLogger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<ConsoleInteractionService>();
-                    var mockPromptService = new ConsolePromptService();
-                    var mockSeriesLogger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<SeriesConfigurationService>();
-                    var mockPatternLogger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<PatternLearningService>();
-                    var mockPatternService = new PatternLearningService(null!, mockPatternLogger);
-                    var mockSeriesService = new SeriesConfigurationService(mockSeriesLogger, mockPromptService, mockPatternService);
-                    var consoleService = new ConsoleInteractionService(null!, mockLogger, mockPromptService, mockSeriesService);
-
-                    var updatedProfile = consoleService.PromptForCompleteSeriesProfile(
-                        profile.SeriesTitle,
-                        "Edit Configuration");
-
-                    profileService.CreateOrUpdateProfileAsync(updatedProfile).GetAwaiter().GetResult();
-
-                    AnsiConsole.WriteLine();
-                    AnsiConsole.MarkupLine("[green]Profile updated successfully![/]");
-                    AnsiConsole.MarkupLine("[dim]Press any key to continue...[/]");
-                    Console.ReadKey(true);
-                    break;
             }
         }
 
