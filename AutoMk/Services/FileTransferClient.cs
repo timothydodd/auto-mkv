@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -22,17 +22,21 @@ public class FileTransferClient : IFileTransferClient
     private readonly FileTransferSettings _settings;
     private readonly ILogger<FileTransferClient> _logger;
     private readonly IConsoleOutputService _consoleOutput;
+    private readonly IProgressManager _progressManager;
     private readonly SemaphoreSlim _transferSemaphore;
+
     public FileTransferClient(
         HttpClient httpClient,
         FileTransferSettings settings,
         ILogger<FileTransferClient> logger,
-        IConsoleOutputService consoleOutput)
+        IConsoleOutputService consoleOutput,
+        IProgressManager progressManager)
     {
         _httpClient = ValidationHelper.ValidateNotNull(httpClient);
         _settings = ValidationHelper.ValidateNotNull(settings);
         _logger = ValidationHelper.ValidateNotNull(logger);
         _consoleOutput = ValidationHelper.ValidateNotNull(consoleOutput);
+        _progressManager = ValidationHelper.ValidateNotNull(progressManager);
 
         // Limit concurrent transfers
         _transferSemaphore = new SemaphoreSlim(_settings.MaxConcurrentTransfers, _settings.MaxConcurrentTransfers);
@@ -51,7 +55,7 @@ public class FileTransferClient : IFileTransferClient
 
         if (!File.Exists(filePath))
         {
-            _logger.LogError($"File not found: {filePath}");
+            _logger.LogError("File not found: {FilePath}", filePath);
             _consoleOutput.ShowError($"Transfer failed - File not found: {filePath}");
             return false;
         }
@@ -72,10 +76,12 @@ public class FileTransferClient : IFileTransferClient
 
         await _transferSemaphore.WaitAsync(cancellationToken);
 
+        Guid? progressTaskId = null;
+
         try
         {
             var fileName = Path.GetFileName(filePath);
-            _logger.LogInformation($"Starting transfer of {fileName} to {_settings.TargetServiceUrl}");
+            _logger.LogInformation("Starting transfer of {FileName} to {ServiceUrl}", fileName, _settings.TargetServiceUrl);
             _consoleOutput.ShowFileTransferStarted(fileName, _settings.TargetServiceUrl);
 
             var fileInfo = new FileInfo(filePath);
@@ -87,18 +93,44 @@ public class FileTransferClient : IFileTransferClient
                 RelativeFilePath = relativePath
             };
 
+            // Create progress task if ProgressManager is active
+            if (_progressManager.IsActive)
+            {
+                progressTaskId = _progressManager.CreateProgressTask(
+                    $"Transferring: {fileName}",
+                    maxValue: 100,
+                    category: "Transfer");
+            }
+
             bool success;
             // Wrap the FileStream in its own scope so it gets disposed before we try to move the file
             {
                 using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read,
                     bufferSize: _settings.BufferSizeBytes, useAsync: true);
 
-                success = await TransferFileAsync(fileStream, transferRequest, fileName, cancellationToken);
+                // Create progress callback for ProgressManager
+                Action<long, long, double, TimeSpan>? progressCallback = null;
+                if (progressTaskId.HasValue)
+                {
+                    var taskId = progressTaskId.Value;
+                    progressCallback = (bytesTransferred, totalBytes, transferRateMBps, timeRemaining) =>
+                    {
+                        _progressManager.UpdateProgressBytes(taskId, bytesTransferred, totalBytes, transferRateMBps, timeRemaining);
+                    };
+                }
+
+                success = await TransferFileAsync(fileStream, transferRequest, fileName, progressCallback, cancellationToken);
             } // FileStream is disposed here, releasing the file lock
 
             if (success)
             {
-                _logger.LogInformation($"Successfully transferred {fileName}");
+                // Mark progress task as complete
+                if (progressTaskId.HasValue)
+                {
+                    _progressManager.CompleteProgressTask(progressTaskId.Value);
+                }
+
+                _logger.LogInformation("Successfully transferred {FileName}", fileName);
                 _consoleOutput.ShowFileTransferCompleted(fileName);
 
                 // Optionally delete the original file after successful transfer
@@ -107,11 +139,11 @@ public class FileTransferClient : IFileTransferClient
                     try
                     {
                         File.Delete(filePath);
-                        _logger.LogInformation($"Deleted original file: {Path.GetFileName(filePath)}");
+                        _logger.LogInformation("Deleted original file: {FileName}", Path.GetFileName(filePath));
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, $"Failed to delete original file: {filePath}");
+                        _logger.LogWarning(ex, "Failed to delete original file: {FilePath}", filePath);
                     }
                 }
                 else
@@ -137,7 +169,7 @@ public class FileTransferClient : IFileTransferClient
                                 FileSystemHelper.EnsureDirectoryExists(movedFileDirectory);
                             }
                             File.Move(filePath, movedFilePath);
-                            _logger.LogInformation($"Moved file to: {movedFilePath}");
+                            _logger.LogInformation("Moved file to: {MovedFilePath}", movedFilePath);
 
                             // Clean up empty directories after moving the file
                             var sourceDirectory = Path.GetDirectoryName(filePath);
@@ -148,7 +180,7 @@ public class FileTransferClient : IFileTransferClient
                         catch (Exception ex)
                         {
                             attempts++;
-                            _logger.LogError(ex, $"Failed to move file to: {movedFilePath} (attempt {attempts}/10)");
+                            _logger.LogError(ex, "Failed to move file to: {MovedFilePath} (attempt {Attempts}/10)", movedFilePath, attempts);
                         }
                         Thread.Sleep(300);
                     }
@@ -156,14 +188,30 @@ public class FileTransferClient : IFileTransferClient
                     // If the move failed after all retries, mark the overall operation as failed
                     if (!moveSucceeded)
                     {
-                        _logger.LogError($"Failed to move file to _moved folder after {attempts} attempts: {filePath}");
+                        _logger.LogError("Failed to move file to _moved folder after {Attempts} attempts: {FilePath}", attempts, filePath);
                         success = false;
                     }
                 }
             }
-            // Note: Detailed error messages are shown by TransferFileAsync
+            else
+            {
+                // Remove progress task on failure
+                if (progressTaskId.HasValue)
+                {
+                    _progressManager.RemoveProgressTask(progressTaskId.Value);
+                }
+            }
 
             return success;
+        }
+        catch (Exception)
+        {
+            // Remove progress task on exception
+            if (progressTaskId.HasValue)
+            {
+                _progressManager.RemoveProgressTask(progressTaskId.Value);
+            }
+            throw;
         }
         finally
         {
@@ -221,7 +269,12 @@ public class FileTransferClient : IFileTransferClient
         }
     }
 
-    private async Task<bool> TransferFileAsync(Stream fileStream, FileTransferRequest request, string fileName, CancellationToken cancellationToken)
+    private async Task<bool> TransferFileAsync(
+        Stream fileStream,
+        FileTransferRequest request,
+        string fileName,
+        Action<long, long, double, TimeSpan>? progressCallback,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -232,14 +285,19 @@ public class FileTransferClient : IFileTransferClient
             content.Add(new StringContent(metadataJson, Encoding.UTF8, "application/json"), "metadata");
 
             // Add file content with progress tracking
-            var progressStream = new ProgressTrackingStreamContent(fileStream, request.FileSizeBytes, fileName, _consoleOutput);
+            var progressStream = new ProgressTrackingStreamContent(
+                fileStream,
+                request.FileSizeBytes,
+                fileName,
+                _consoleOutput,
+                progressCallback);
             progressStream.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
             content.Add(progressStream, "file", request.OriginalFileName);
 
             var response = await _httpClient.PostAsync($"{_settings.TargetServiceUrl}/upload", content, cancellationToken);
 
-            // Ensure we end the progress line with a newline
-            if (_settings.Enabled)
+            // Ensure we end the progress line with a newline (only if not using ProgressManager)
+            if (_settings.Enabled && !_progressManager.IsActive)
             {
                 AnsiConsole.WriteLine();
             }
@@ -247,13 +305,13 @@ public class FileTransferClient : IFileTransferClient
             if (response.IsSuccessStatusCode)
             {
                 var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogDebug($"Transfer response: {responseContent}");
+                _logger.LogDebug("Transfer response: {ResponseContent}", responseContent);
                 return true;
             }
             else
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError($"Transfer failed with status {response.StatusCode}: {errorContent}");
+                _logger.LogError("Transfer failed with status {StatusCode}: {ErrorContent}", response.StatusCode, errorContent);
                 _consoleOutput.ShowError($"Transfer failed - HTTP {(int)response.StatusCode} ({response.StatusCode}): {errorContent}");
                 return false;
             }
@@ -307,7 +365,7 @@ public class FileTransferClient : IFileTransferClient
                 !Directory.GetDirectories(directory).Any())
             {
                 Directory.Delete(directory);
-                _logger.LogDebug($"Deleted empty directory: {directory}");
+                _logger.LogDebug("Deleted empty directory: {Directory}", directory);
 
                 // Recursively check parent directory
                 var parentDirectory = Path.GetDirectoryName(directory);
@@ -319,13 +377,14 @@ public class FileTransferClient : IFileTransferClient
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, $"Could not delete directory: {directory}");
+            _logger.LogDebug(ex, "Could not delete directory: {Directory}", directory);
         }
     }
 }
 
 /// <summary>
-/// Custom HttpContent that tracks upload progress and calculates time remaining
+/// Custom HttpContent that tracks upload progress and calculates time remaining.
+/// Supports both console output (legacy) and callback-based progress reporting (for ProgressManager).
 /// </summary>
 public class ProgressTrackingStreamContent : HttpContent
 {
@@ -333,16 +392,23 @@ public class ProgressTrackingStreamContent : HttpContent
     private readonly long _totalBytes;
     private readonly string _fileName;
     private readonly IConsoleOutputService _consoleOutput;
+    private readonly Action<long, long, double, TimeSpan>? _progressCallback;
     private readonly Stopwatch _stopwatch;
     private long _bytesTransferred;
     private DateTime _lastUpdateTime;
 
-    public ProgressTrackingStreamContent(Stream stream, long totalBytes, string fileName, IConsoleOutputService consoleOutput)
+    public ProgressTrackingStreamContent(
+        Stream stream,
+        long totalBytes,
+        string fileName,
+        IConsoleOutputService consoleOutput,
+        Action<long, long, double, TimeSpan>? progressCallback = null)
     {
         _stream = stream ?? throw new ArgumentNullException(nameof(stream));
         _totalBytes = totalBytes;
         _fileName = fileName ?? throw new ArgumentNullException(nameof(fileName));
         _consoleOutput = consoleOutput ?? throw new ArgumentNullException(nameof(consoleOutput));
+        _progressCallback = progressCallback;
         _stopwatch = new Stopwatch();
         _lastUpdateTime = DateTime.UtcNow;
     }
@@ -396,8 +462,15 @@ public class ProgressTrackingStreamContent : HttpContent
             // Calculate time remaining
             var remainingBytes = _totalBytes - _bytesTransferred;
             var timeRemainingSeconds = remainingBytes / (transferRateMBps * 1024.0 * 1024.0);
-            var timeRemaining = System.TimeSpan.FromSeconds(Math.Max(0, timeRemainingSeconds));
+            var timeRemaining = TimeSpan.FromSeconds(Math.Max(0, timeRemainingSeconds));
 
+            // Use callback if provided (for ProgressManager)
+            if (_progressCallback != null)
+            {
+                _progressCallback(_bytesTransferred, _totalBytes, transferRateMBps, timeRemaining);
+            }
+
+            // Also call console output (it will check if ProgressManager is active internally)
             _consoleOutput.ShowFileTransferProgress(_fileName, _bytesTransferred, _totalBytes, timeRemaining, transferRateMBps);
         }
     }

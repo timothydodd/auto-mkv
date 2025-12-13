@@ -101,6 +101,10 @@ namespace AutoMk
                     // Register console output service
                     services.AddSingleton<IConsoleOutputService, ConsoleOutputService>();
 
+                    // Register progress manager for concurrent progress bars
+                    services.AddSingleton(new ProgressManagerOptions());
+                    services.AddSingleton<IProgressManager, ProgressManager>();
+
                     services.AddSingleton<ConsoleInteractionService>();
                     services.AddSingleton<ManualModeService>();
                     services.AddSingleton<IMediaIdentificationService, MediaIdentificationService>();

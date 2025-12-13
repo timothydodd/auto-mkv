@@ -213,10 +213,65 @@ public class ConsolePromptService : IConsolePromptService
         else if (options.MaxValue.HasValue)
             promptText += $" [dim](Max: {options.MaxValue.Value})[/]";
 
-        var prompt = new TextPrompt<int>(promptText);
-
+        // For optional numbers, use a string prompt and parse manually
+        // because TextPrompt<int>.AllowEmpty() doesn't work correctly
         if (!options.Required)
-            prompt.AllowEmpty();
+        {
+            promptText += " [dim](press Enter to skip)[/]";
+            var stringPrompt = new TextPrompt<string>(promptText)
+                .AllowEmpty();
+
+            if (options.DefaultValue.HasValue)
+                stringPrompt.DefaultValue(options.DefaultValue.Value.ToString());
+
+            try
+            {
+                var stringResult = AnsiConsole.Prompt(stringPrompt);
+
+                // Empty string means user skipped
+                if (string.IsNullOrWhiteSpace(stringResult))
+                {
+                    if (options.DefaultValue.HasValue)
+                        return PromptResult<int>.CreateSuccess(options.DefaultValue.Value);
+                    // Return a "skipped" result - Success is false but not an error
+                    return PromptResult<int>.CreateCancelled();
+                }
+
+                // Try to parse as int
+                if (int.TryParse(stringResult, out var parsedValue))
+                {
+                    // Validate range
+                    if (options.MinValue.HasValue && parsedValue < options.MinValue.Value)
+                    {
+                        AnsiConsole.MarkupLine($"[red]Must be at least {options.MinValue.Value}[/]");
+                        return NumberPrompt(options); // Retry
+                    }
+
+                    if (options.MaxValue.HasValue && parsedValue > options.MaxValue.Value)
+                    {
+                        AnsiConsole.MarkupLine($"[red]Must be no more than {options.MaxValue.Value}[/]");
+                        return NumberPrompt(options); // Retry
+                    }
+
+                    return PromptResult<int>.CreateSuccess(parsedValue);
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine("[red]Please enter a valid number[/]");
+                    return NumberPrompt(options); // Retry
+                }
+            }
+            catch (Exception)
+            {
+                if (options.AllowCancel)
+                    return PromptResult<int>.CreateCancelled();
+
+                return PromptResult<int>.CreateError("No value provided");
+            }
+        }
+
+        // Required number - use the standard int prompt
+        var prompt = new TextPrompt<int>(promptText);
 
         if (options.DefaultValue.HasValue)
             prompt.DefaultValue(options.DefaultValue.Value);

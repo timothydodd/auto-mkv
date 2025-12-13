@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.Threading.Tasks;
+using AutoMk.Interfaces;
 using AutoMk.Models;
 using AutoMk.Utilities;
 using Microsoft.Extensions.Logging;
@@ -8,24 +9,31 @@ using Spectre.Console;
 
 namespace AutoMk.Services;
 
+/// <summary>
+/// Handles progress reporting for MakeMKV operations.
+/// Integrates with ProgressManager for concurrent progress bar display.
+/// </summary>
 public class MakeMkvProgressReporter : IDisposable
 {
     private readonly ILogger<MakeMkvProgressReporter> _logger;
+    private readonly IProgressManager _progressManager;
     private readonly MakeMkvStatus _status = new();
     private string _currentTitle = "";
     private bool _isActive;
-    private ProgressTask? _progressTask;
-    private ProgressContext? _progressContext;
+    private Guid? _currentTaskId;
 
-    public MakeMkvProgressReporter(ILogger<MakeMkvProgressReporter> logger)
+    public MakeMkvProgressReporter(
+        ILogger<MakeMkvProgressReporter> logger,
+        IProgressManager progressManager)
     {
         _logger = ValidationHelper.ValidateNotNull(logger);
+        _progressManager = ValidationHelper.ValidateNotNull(progressManager);
     }
 
     public MakeMkvStatus Status => _status;
 
     /// <summary>
-    /// Executes an async operation with Spectre.Console progress display
+    /// Executes an async operation with progress tracking via ProgressManager.
     /// </summary>
     public async Task<T> RunWithProgressAsync<T>(string title, Func<Action<string>, Task<T>> operation)
     {
@@ -33,72 +41,96 @@ public class MakeMkvProgressReporter : IDisposable
         _status.Converting = true;
         _isActive = true;
 
+        // Create progress task via ProgressManager
+        _currentTaskId = _progressManager.CreateProgressTask(
+            $"Ripping: {title}",
+            maxValue: 100,
+            category: "MakeMKV");
+
         T result = default!;
 
-        await AnsiConsole.Progress()
-            .AutoRefresh(true)
-            .AutoClear(false)
-            .HideCompleted(false)
-            .Columns(new ProgressColumn[]
+        try
+        {
+            // Execute the operation, passing our ParseProgressLine as the output handler
+            result = await operation(ParseProgressLine);
+
+            // Ensure progress shows 100% on completion
+            if (_currentTaskId.HasValue)
             {
-                new TaskDescriptionColumn(),
-                new ProgressBarColumn(),
-                new PercentageColumn(),
-                new RemainingTimeColumn(),
-                new SpinnerColumn(),
-            })
-            .StartAsync(async ctx =>
+                _progressManager.CompleteProgressTask(_currentTaskId.Value);
+            }
+
+            _progressManager.Log($"Completed: {title}", ProgressLogLevel.Success);
+        }
+        catch (Exception)
+        {
+            // Remove progress task on error
+            if (_currentTaskId.HasValue)
             {
-                _progressContext = ctx;
-                _progressTask = ctx.AddTask($"[cyan]{Markup.Escape(title)}[/]", maxValue: 100);
-
-                // Execute the operation, passing our ParseProgressLine as the output handler
-                result = await operation(ParseProgressLine);
-
-                // Ensure progress shows 100% on completion
-                _progressTask.Value = 100;
-            });
-
-        _isActive = false;
-        _progressTask = null;
-        _progressContext = null;
-        _status.Converting = false;
-
-        AnsiConsole.MarkupLine($"[green]✓ Completed:[/] [white]{Markup.Escape(_currentTitle)}[/]");
+                _progressManager.RemoveProgressTask(_currentTaskId.Value);
+            }
+            throw;
+        }
+        finally
+        {
+            _isActive = false;
+            _currentTaskId = null;
+            _status.Converting = false;
+        }
 
         return result;
     }
 
+    /// <summary>
+    /// Legacy method for starting progress without async wrapper.
+    /// Outputs to ProgressManager log area.
+    /// </summary>
     public void StartProgress(string title, int maxTicks = 100)
     {
         _currentTitle = title;
         _status.Converting = true;
         _isActive = true;
 
-        // This is called when not using RunWithProgressAsync
-        // Fall back to simple output
-        AnsiConsole.MarkupLine($"[cyan]Ripping:[/] [white]{Markup.Escape(title)}[/]");
+        // Create progress task if ProgressManager is active
+        if (_progressManager.IsActive)
+        {
+            _currentTaskId = _progressManager.CreateProgressTask(
+                $"Ripping: {title}",
+                maxValue: maxTicks,
+                category: "MakeMKV");
+        }
+        else
+        {
+            // Fallback to simple output
+            AnsiConsole.MarkupLine($"[cyan]Ripping:[/] [white]{Markup.Escape(title)}[/]");
+        }
     }
 
+    /// <summary>
+    /// Updates progress percentage and ETA display.
+    /// </summary>
     public void UpdateProgress(float percentage)
     {
         _status.Percentage = percentage;
 
-        if (_progressTask != null)
+        if (_currentTaskId.HasValue)
         {
-            _progressTask.Value = percentage;
-
-            // Update description with ETA if available
+            var description = $"Ripping: {_currentTitle}";
             if (_status.Estimated != TimeSpan.Zero)
             {
                 var eta = _status.Estimated.TotalHours >= 1
                     ? $"{_status.Estimated.Hours:D2}h {_status.Estimated.Minutes:D2}m"
                     : $"{_status.Estimated.Minutes:D2}m {_status.Estimated.Seconds:D2}s";
-                _progressTask.Description = $"[cyan]{Markup.Escape(_currentTitle)}[/] [dim](ETA: {eta})[/]";
+                description = $"Ripping: {_currentTitle} (ETA: {eta})";
             }
+
+            _progressManager.UpdateProgress(_currentTaskId.Value, percentage, description);
         }
     }
 
+    /// <summary>
+    /// Parses MakeMKV progress output lines (PRGV: and PRGT:).
+    /// </summary>
     public void ParseProgressLine(string line)
     {
         if (string.IsNullOrEmpty(line))
@@ -137,15 +169,26 @@ public class MakeMkvProgressReporter : IDisposable
         }
     }
 
+    /// <summary>
+    /// Completes the current progress operation.
+    /// </summary>
     public void CompleteProgress()
     {
-        if (_isActive && _progressTask == null)
+        if (_isActive)
         {
-            // Only show completion message if not using Spectre Progress
-            AnsiConsole.MarkupLine($"[green]✓ Completed:[/] [white]{Markup.Escape(_currentTitle)}[/]");
+            if (_currentTaskId.HasValue)
+            {
+                _progressManager.CompleteProgressTask(_currentTaskId.Value);
+            }
+            else if (!_progressManager.IsActive)
+            {
+                // Only show completion message if not using ProgressManager
+                AnsiConsole.MarkupLine($"[green]✓ Completed:[/] [white]{Markup.Escape(_currentTitle)}[/]");
+            }
         }
 
         _isActive = false;
+        _currentTaskId = null;
         _status.Converting = false;
         _status.Percentage = 0;
         _status.CurrentFps = 0;
@@ -158,5 +201,10 @@ public class MakeMkvProgressReporter : IDisposable
     public void Dispose()
     {
         _isActive = false;
+        if (_currentTaskId.HasValue)
+        {
+            _progressManager.RemoveProgressTask(_currentTaskId.Value);
+            _currentTaskId = null;
+        }
     }
 }
