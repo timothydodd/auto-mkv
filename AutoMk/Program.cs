@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 using AutoMk.Interfaces;
 using AutoMk.Models;
@@ -132,7 +131,7 @@ namespace AutoMk
                     {
                         // Clear default providers first (Host.CreateDefaultBuilder adds console by default)
                         loggingBuilder.ClearProviders();
-                        
+
                         loggingBuilder.AddConfiguration(config.GetSection("Logging"));
                         loggingBuilder.SetMinimumLevel(LogLevel.Trace);
 
@@ -335,6 +334,7 @@ namespace AutoMk
             services.AddSingleton<IEnhancedOmdbService, EnhancedOmdbService>();
             services.AddSingleton<IMediaSelectionService, MediaSelectionService>();
             services.AddSingleton<IDiscoverAndNameService, DiscoverAndNameService>();
+            services.AddSingleton<IProgressManager, ProgressManager>();
 
             var serviceProvider = services.BuildServiceProvider();
             var discoverService = serviceProvider.GetRequiredService<IDiscoverAndNameService>();
