@@ -778,11 +778,37 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
             return;
         }
 
-        // Step 4: Get episode mapping for TV series
+        // Step 4: Get episode mapping for TV series, or movie mapping for multi-movie discs
         Dictionary<AkTitle, EpisodeInfo>? episodeMapping = null;
+        Dictionary<AkTitle, MovieInfo>? movieMapping = null;
+
         if (mediaType == MediaType.TvSeries)
         {
             episodeMapping = _manualModeService.MapTracksToEpisodes(titlesToRip, mediaData.Title ?? "Unknown Series");
+        }
+        else if (mediaType == MediaType.Movie && titlesToRip.Count > 1)
+        {
+            // Multi-movie disc: each track is a different movie
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine($"[yellow]Multiple tracks selected ({titlesToRip.Count}) in movie mode.[/]");
+            AnsiConsole.MarkupLine("[dim]Each track will be identified as a separate movie.[/]");
+
+            movieMapping = await _manualModeService.MapTracksToMoviesAsync(titlesToRip);
+
+            if (!movieMapping.Any())
+            {
+                _logger.LogInformation("No movies identified for any tracks. Aborting disc processing.");
+                return;
+            }
+
+            // Update titlesToRip to only include tracks that were identified
+            titlesToRip = movieMapping.Keys.ToList();
+
+            if (!titlesToRip.Any())
+            {
+                _logger.LogInformation("No tracks with identified movies. Aborting disc processing.");
+                return;
+            }
         }
 
         // Step 5: Determine output path for ripping
@@ -798,14 +824,23 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
 
         if (mediaType == MediaType.Movie)
         {
-            var movieInfo = new MovieInfo
+            if (movieMapping != null && movieMapping.Any())
             {
-                Title = mediaData.Title,
-                Year = mediaData.Year,
-                Type = mediaData.Type,
-                ImdbID = mediaData.ImdbID
-            };
-            success = await ProcessManualMovieAsync(tempOutputPath, drive.CDName, titlesToRip, movieInfo);
+                // Multi-movie disc: process each track as a separate movie
+                success = await ProcessMultiMovieDiscAsync(tempOutputPath, drive.CDName, movieMapping);
+            }
+            else
+            {
+                // Single movie: use existing behavior
+                var movieInfo = new MovieInfo
+                {
+                    Title = mediaData.Title,
+                    Year = mediaData.Year,
+                    Type = mediaData.Type,
+                    ImdbID = mediaData.ImdbID
+                };
+                success = await ProcessManualMovieAsync(tempOutputPath, drive.CDName, titlesToRip, movieInfo);
+            }
         }
         else
         {
@@ -845,6 +880,59 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         };
 
         return await _mediaService.ProcessRippedMediaAsync(outputPath, discName, rippedTracks, preIdentifiedMedia);
+    }
+
+    /// <summary>
+    /// Processes a multi-movie disc where each track is a different movie.
+    /// </summary>
+    private async Task<bool> ProcessMultiMovieDiscAsync(string outputPath, string discName, Dictionary<AkTitle, MovieInfo> movieMapping)
+    {
+        _logger.LogInformation($"MANUAL MODE - Processing {movieMapping.Count} movies from multi-movie disc: {discName}");
+
+        var allSuccess = true;
+
+        foreach (var kvp in movieMapping)
+        {
+            var track = kvp.Key;
+            var movieInfo = kvp.Value;
+
+            try
+            {
+                var originalFile = FindRippedFile(outputPath, track);
+                if (originalFile == null)
+                {
+                    _logger.LogWarning($"Could not find ripped file for track: {track.Id} - {movieInfo.Title}");
+                    allSuccess = false;
+                    continue;
+                }
+
+                // Generate movie filename using the naming service
+                var extension = Path.GetExtension(originalFile);
+                var movieFileName = _namingService.GenerateMovieFileName(
+                    movieInfo.Title!,
+                    movieInfo.Year,
+                    extension);
+
+                var movieDirectory = _namingService.GetMovieDirectory(outputPath, movieInfo.Title!, movieInfo.Year);
+
+                // Ensure directory exists
+                Directory.CreateDirectory(movieDirectory);
+
+                var newFilePath = Path.Combine(movieDirectory, movieFileName);
+
+                // Move the file
+                File.Move(originalFile, newFilePath);
+                _logger.LogInformation($"MANUAL MODE - Multi-movie: Renamed track {track.Id} to: {movieFileName}");
+                _consoleOutput.ShowFileRenamed(Path.GetFileName(originalFile), movieFileName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error processing movie '{movieInfo.Title}' from track {track.Id}");
+                allSuccess = false;
+            }
+        }
+
+        return allSuccess;
     }
 
     private async Task<bool> ProcessManualTvSeriesAsync(string outputPath, string discName, List<AkTitle> rippedTracks, SeriesInfo seriesInfo, Dictionary<AkTitle, EpisodeInfo> episodeMapping)

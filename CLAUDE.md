@@ -265,8 +265,18 @@ Users choose between three modes at startup:
 2. **Identify Media with Confirmation** → Shows OMDB results, user confirms or searches manually
 3. **Media Type Selection** → If unclear, user chooses Movie or TV Series
 4. **Track Selection** (user picks) → Displays all tracks in table, user multi-selects
-5. **Episode Mapping** (TV Series only) → For each track: enter season (1-50) and episode (1-999)
+5. **Content Mapping**:
+   - **TV Series**: Episode Mapping → For each track: enter season (1-50) and episode (1-999)
+   - **Multi-Movie Disc**: If multiple tracks selected in movie mode, each track is identified as a separate movie via OMDB search
 6. **Rip Selected Tracks** → Process & Rename → Move to organized folders → Eject Disc
+
+**Multi-Movie Disc Support:**
+In Manual Mode, when the user selects multiple tracks and chooses movie mode:
+- Each track is treated as a different movie
+- User is prompted to identify each track via OMDB search
+- Track name is used as default search term (cleaned)
+- Each movie is processed and named individually
+- Organized into separate movie folders following Plex naming conventions
 
 #### Mode 3: Discover and Name Mode (File Organization)
 **Purpose:** Organize existing MKV files without ripping

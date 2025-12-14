@@ -247,6 +247,174 @@ public class ManualModeService
         return trackMapping;
     }
 
+    /// <summary>
+    /// Maps each selected track to a different movie via OMDB identification.
+    /// Used for multi-movie discs in Manual Mode.
+    /// </summary>
+    public async Task<Dictionary<AkTitle, MovieInfo>> MapTracksToMoviesAsync(List<AkTitle> selectedTracks)
+    {
+        AnsiConsole.WriteLine();
+        _promptService.DisplayHeader("MANUAL MODE - Multi-Movie Track Mapping");
+        AnsiConsole.MarkupLine("[dim]Identify each track as a separate movie:[/]");
+        AnsiConsole.WriteLine();
+
+        var trackMapping = new Dictionary<AkTitle, MovieInfo>();
+
+        for (int i = 0; i < selectedTracks.Count; i++)
+        {
+            var track = selectedTracks[i];
+
+            var trackPanel = new Panel($"[white]{Markup.Escape(track.Name ?? "Unknown")}[/] [dim]({track.SizeInGB:F2} GB)[/]")
+            {
+                Header = new PanelHeader($"[cyan]Track {i + 1} of {selectedTracks.Count} (ID: {track.Id})[/]"),
+                Border = BoxBorder.Rounded,
+                BorderStyle = new Style(Color.Cyan1)
+            };
+            AnsiConsole.Write(trackPanel);
+            AnsiConsole.WriteLine();
+
+            // Prompt for movie identification
+            var movieInfo = await IdentifyMovieForTrackAsync(track);
+
+            if (movieInfo != null)
+            {
+                trackMapping[track] = movieInfo;
+                AnsiConsole.MarkupLine($"  [green]Identified as:[/] [white]{Markup.Escape(movieInfo.Title ?? "Unknown")}[/] [dim]({movieInfo.Year})[/]");
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"  [yellow]Skipped:[/] [dim]Track will not be processed[/]");
+            }
+            AnsiConsole.WriteLine();
+        }
+
+        return trackMapping;
+    }
+
+    /// <summary>
+    /// Identifies a single movie for a specific track.
+    /// </summary>
+    private async Task<MovieInfo?> IdentifyMovieForTrackAsync(AkTitle track)
+    {
+        // Get search title from user
+        var titleResult = _promptService.TextPrompt(new TextPromptOptions
+        {
+            Question = "Enter movie title to search:",
+            Required = true,
+            PromptText = "Title",
+            DefaultValue = CleanTrackNameForSearch(track.Name)
+        });
+
+        if (!titleResult.Success || titleResult.Cancelled || string.IsNullOrWhiteSpace(titleResult.Value))
+        {
+            return null;
+        }
+
+        // Get year (optional)
+        var yearResult = _promptService.NumberPrompt(new NumberPromptOptions
+        {
+            Question = "Enter year (optional, press Enter to skip):",
+            Required = false,
+            PromptText = "Year",
+            MinValue = 1900,
+            MaxValue = DateTime.Now.Year + 5
+        });
+
+        int? year = yearResult.Success && yearResult.Value > 0 ? yearResult.Value : null;
+
+        AnsiConsole.MarkupLine($"[dim]Searching for:[/] [white]'{Markup.Escape(titleResult.Value)}'[/]{(year.HasValue ? $" [dim]({year})[/]" : "")}");
+
+        try
+        {
+            var movieResult = await _omdbClient.GetMovie(titleResult.Value, year);
+
+            if (movieResult != null && !string.IsNullOrEmpty(movieResult.Title) && movieResult.Response == "True")
+            {
+                var resultPanel = new Panel(
+                    new Markup($"[white]{Markup.Escape(movieResult.Title ?? "")}[/] [dim]({Markup.Escape(movieResult.Year ?? "")})[/]\n\n" +
+                              $"[dim]{Markup.Escape(movieResult.Plot ?? "")}[/]"))
+                {
+                    Header = new PanelHeader("[green]Found[/]"),
+                    Border = BoxBorder.Rounded,
+                    BorderStyle = new Style(Color.Green)
+                };
+                AnsiConsole.Write(resultPanel);
+
+                var confirmResult = _promptService.SelectPrompt(new SelectPromptOptions
+                {
+                    Question = "Is this the correct movie?",
+                    Choices = new List<PromptChoice>
+                    {
+                        new("confirm", "Yes - use this movie"),
+                        new("search", "No - search again"),
+                        new("skip", "Skip this track")
+                    }
+                });
+
+                if (!confirmResult.Success || confirmResult.Cancelled)
+                {
+                    return null;
+                }
+
+                return confirmResult.Value switch
+                {
+                    "confirm" => MovieInfo.FromMovieResponse(movieResult),
+                    "search" => await IdentifyMovieForTrackAsync(track), // Recursive search
+                    _ => null
+                };
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[yellow]No results found for that search.[/]");
+
+                var retryResult = _promptService.SelectPrompt(new SelectPromptOptions
+                {
+                    Question = "What would you like to do?",
+                    Choices = new List<PromptChoice>
+                    {
+                        new("search", "Search again"),
+                        new("skip", "Skip this track")
+                    }
+                });
+
+                if (retryResult.Success && retryResult.Value == "search")
+                {
+                    return await IdentifyMovieForTrackAsync(track); // Recursive search
+                }
+
+                return null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during movie search");
+            AnsiConsole.MarkupLine($"[red]Error during search:[/] {Markup.Escape(ex.Message)}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Cleans track name for use as a default search term.
+    /// </summary>
+    private string CleanTrackNameForSearch(string? trackName)
+    {
+        if (string.IsNullOrWhiteSpace(trackName))
+            return "";
+
+        // Remove file extension if present
+        var cleaned = System.IO.Path.GetFileNameWithoutExtension(trackName);
+
+        // Remove common track naming patterns
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"_t\d+$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"\bt\d+\b", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        // Replace underscores and clean up
+        cleaned = cleaned.Replace("_", " ").Trim();
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"\s+", " ");
+
+        return cleaned;
+    }
+
     private async Task<MediaIdentity?> SelectBetweenFoundResults(ConfirmationInfo movieResult, ConfirmationInfo seriesResult)
     {
         var result = _promptService.SelectPrompt(new SelectPromptOptions
