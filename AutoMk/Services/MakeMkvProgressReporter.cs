@@ -137,11 +137,11 @@ public class MakeMkvProgressReporter : IDisposable
 
             _progressManager.UpdateProgress(_currentTaskId.Value, percentage, description);
         }
-        else if (_isActive)
+        else
         {
-            // Direct console output (bypass ProgressManager)
+            // Direct console output - always show when not using ProgressManager
             var roundedPercentage = (int)percentage;
-            if (roundedPercentage > _lastReportedPercentage)
+            if (roundedPercentage != _lastReportedPercentage)
             {
                 _lastReportedPercentage = roundedPercentage;
 
@@ -151,19 +151,9 @@ public class MakeMkvProgressReporter : IDisposable
                 var emptyWidth = barWidth - filledWidth;
                 var progressBar = $"[green]{new string('━', filledWidth)}[/][dim]{new string('─', emptyWidth)}[/]";
 
-                // Build ETA string
-                var etaStr = "            "; // Fixed width placeholder
-                if (_status.Estimated != TimeSpan.Zero)
-                {
-                    var eta = _status.Estimated.TotalHours >= 1
-                        ? $"{_status.Estimated.Hours:D2}h {_status.Estimated.Minutes:D2}m"
-                        : $"{_status.Estimated.Minutes:D2}m {_status.Estimated.Seconds:D2}s";
-                    etaStr = eta.PadRight(12);
-                }
-
                 // Clear line and write progress
                 Console.Write("\r" + new string(' ', Console.WindowWidth - 1) + "\r");
-                AnsiConsole.Markup($"[cyan]Ripping:[/] [[{progressBar}]] [yellow]{percentage,5:F1}%[/] [dim]ETA:[/] {etaStr}");
+                AnsiConsole.Markup($"[cyan]Ripping:[/] [[{progressBar}]] [yellow]{percentage,5:F1}%[/]");
             }
         }
     }
@@ -181,11 +171,10 @@ public class MakeMkvProgressReporter : IDisposable
         {
             if (line.StartsWith("PRGV:"))
             {
-                // Split by comma: "PRGV:0,45,100,0,0" -> ["PRGV:0", "45", "100", "0", "0"]
+                // Original parsing - split by comma, parts[1]=current, parts[2]=total
+                // For "PRGV:0,45,100,0,0" -> parts[0]="PRGV:0", parts[1]="45", parts[2]="100"
                 var parts = line.Split(',');
-                if (parts.Length >= 3 &&
-                    int.TryParse(parts[1], out var current) &&
-                    int.TryParse(parts[2], out var total))
+                if (parts.Length >= 3 && int.TryParse(parts[1], out var current) && int.TryParse(parts[2], out var total))
                 {
                     var percentage = total > 0 ? (float)current / total * 100 : 0;
                     UpdateProgress(percentage);
