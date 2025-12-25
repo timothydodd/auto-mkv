@@ -25,6 +25,7 @@ public class MediaIdentificationService : IMediaIdentificationService
     private readonly ISeriesConfigurationService _seriesConfigurationService;
     private readonly IPatternLearningService _patternLearningService;
     private readonly IConsoleOutputService _consoleOutput;
+    private readonly IBatchRenameService _batchRenameService;
 
     public MediaIdentificationService(
         IOmdbClient omdbClient,
@@ -37,7 +38,8 @@ public class MediaIdentificationService : IMediaIdentificationService
         IMediaSelectionService mediaSelectionService,
         ISeriesConfigurationService seriesConfigurationService,
         IPatternLearningService patternLearningService,
-        IConsoleOutputService consoleOutput)
+        IConsoleOutputService consoleOutput,
+        IBatchRenameService batchRenameService)
     {
         _omdbClient = ValidationHelper.ValidateNotNull(omdbClient);
         _logger = ValidationHelper.ValidateNotNull(logger);
@@ -50,6 +52,7 @@ public class MediaIdentificationService : IMediaIdentificationService
         _seriesConfigurationService = ValidationHelper.ValidateNotNull(seriesConfigurationService);
         _patternLearningService = ValidationHelper.ValidateNotNull(patternLearningService);
         _consoleOutput = ValidationHelper.ValidateNotNull(consoleOutput);
+        _batchRenameService = ValidationHelper.ValidateNotNull(batchRenameService);
     }
 
     public async Task<bool> ProcessRippedMediaAsync(string outputPath, string discName, List<AkTitle> rippedTracks)
@@ -408,50 +411,71 @@ public class MediaIdentificationService : IMediaIdentificationService
 
     private async Task<bool> ProcessTracksToEpisodesAsync(string outputPath, string discName, List<AkTitle> sortedTracks, SeriesInfo seriesInfo, SeriesState seriesState, DiscInfo discInfo, bool isReprocessing)
     {
-        bool success = true;
-
         if (seriesState.TrackSortingStrategy == TrackSortingStrategy.UserConfirmed)
         {
             var (confirmedTracks, userEpisodeMapping, userSelections, skippedTracks) = await HandleUserConfirmedSorting(sortedTracks, seriesInfo, seriesState, discName);
             sortedTracks = confirmedTracks;
-            
+
             // Handle skipped tracks by moving them to _trash folder
             if (skippedTracks.Count > 0)
             {
                 MoveSkippedTracksToTrash(outputPath, skippedTracks);
             }
-            
+
             discInfo.TrackToEpisodeMapping.Clear();
             foreach (var kvp in userEpisodeMapping)
             {
                 discInfo.TrackToEpisodeMapping[kvp.Key] = new List<int> { kvp.Value };
             }
-            
+
             // Store user selections for pattern learning
             discInfo.UserSelections = userSelections;
         }
 
-        var minEpisodeLength = sortedTracks.Min(t => t.LengthInSeconds);
+        // First pass: Determine episode numbers for all tracks (may prompt for double episodes)
+        var minEpisodeLength = sortedTracks.Any() ? sortedTracks.Min(t => t.LengthInSeconds) : 0;
         int currentEpisode = discInfo.StartingEpisode;
         var trackToEpisodeMapping = discInfo.TrackToEpisodeMapping;
 
         for (int i = 0; i < sortedTracks.Count; i++)
         {
             var track = sortedTracks[i];
-            var episodeNumbers = DetermineEpisodeNumbers(track, i, trackToEpisodeMapping, ref currentEpisode, minEpisodeLength, seriesState, seriesInfo.Title!);
-
-            bool trackSuccess = await ProcessSingleTrackAsync(outputPath, discName, track, seriesInfo, discInfo, episodeNumbers[0], isReprocessing, minEpisodeLength, currentEpisode);
-            
-            if (!trackSuccess)
+            if (!trackToEpisodeMapping.ContainsKey(i))
             {
-                success = false;
+                var episodeNumbers = DetermineEpisodeNumbers(track, i, trackToEpisodeMapping, ref currentEpisode, minEpisodeLength, seriesState, seriesInfo.Title!);
+                trackToEpisodeMapping[i] = episodeNumbers;
             }
+        }
+        discInfo.TrackToEpisodeMapping = trackToEpisodeMapping;
 
-            // Update mapping for this track
-            trackToEpisodeMapping[i] = episodeNumbers;
+        // Collect all pending renames
+        var pendingRenames = await _batchRenameService.CollectTvSeriesRenamesAsync(
+            outputPath, discName, sortedTracks, seriesInfo, discInfo, seriesState);
+
+        if (pendingRenames.Count == 0)
+        {
+            _logger.LogWarning("No files found to rename");
+            return false;
         }
 
-        discInfo.TrackToEpisodeMapping = trackToEpisodeMapping;
+        // Show confirmation UI with option to re-lookup (only for multiple tracks)
+        BatchRenameResult confirmResult;
+        if (pendingRenames.Count > 1)
+        {
+            confirmResult = await _batchRenameService.ConfirmAndProcessRenamesAsync(pendingRenames);
+
+            if (confirmResult.UserCancelled)
+            {
+                _logger.LogInformation("User cancelled batch rename - keeping original filenames");
+                return false;
+            }
+
+            pendingRenames = confirmResult.PendingRenames;
+        }
+
+        // Execute the confirmed renames
+        var success = await _batchRenameService.ExecuteRenamesAsync(pendingRenames);
+
         return success;
     }
 
@@ -682,106 +706,35 @@ public class MediaIdentificationService : IMediaIdentificationService
     {
         _logger.LogInformation($"Processing Movie: {movieInfo.Title}");
 
-        var success = true;
+        // Create a mapping of all tracks to the same movie
+        var trackMovieMapping = rippedTracks.ToDictionary(t => t, _ => movieInfo);
 
-        foreach (var track in rippedTracks)
+        // Collect all pending renames
+        var pendingRenames = await _batchRenameService.CollectMovieRenamesAsync(
+            outputPath, discName, trackMovieMapping);
+
+        if (pendingRenames.Count == 0)
         {
-            try
-            {
-                var originalFile = _fileDiscoveryService.FindRippedFile(outputPath, track);
-                if (originalFile == null)
-                {
-                    _logger.LogWarning($"Could not find ripped file for track: {track.Id}");
-                    success = false;
-                    continue;
-                }
-
-                var newFileName = _namingService.GenerateMovieFileName(
-                    movieInfo.Title!,
-                    movieInfo.Year,
-                    Path.GetExtension(originalFile));
-
-                var movieDir = _namingService.GetMovieDirectory(outputPath, movieInfo.Title!, movieInfo.Year);
-                var newFilePath = Path.Combine(movieDir, newFileName);
-
-                // Ensure directory exists
-                FileSystemHelper.EnsureDirectoryExists(movieDir);
-
-                // Try to move the file with retry logic for access errors
-                bool moveSuccessful = false;
-                int retryCount = 0;
-                const int maxRetries = 3;
-                
-                while (!moveSuccessful && retryCount < maxRetries)
-                {
-                    try
-                    {
-                        File.Move(originalFile, newFilePath);
-                        moveSuccessful = true;
-                    }
-                    catch (IOException ioEx) when (ioEx.Message.Contains("being used by another process") || 
-                                                  ioEx.Message.Contains("Access to the path") ||
-                                                  ioEx.Message.Contains("denied"))
-                    {
-                        retryCount++;
-                        
-                        if (retryCount >= maxRetries)
-                        {
-                            // Ask user what to do
-                            var userChoice = _consoleInteraction.HandleFileAccessError(
-                                movieInfo.Title!,
-                                0, // No season for movies
-                                1, // Use episode 1 as default for movies
-                                Path.GetFileName(originalFile),
-                                ioEx.Message);
-                            
-                            switch (userChoice)
-                            {
-                                case ConsoleInteractionService.FileAccessErrorChoice.Retry:
-                                    retryCount = 0; // Reset retry count
-                                    continue;
-                                    
-                                case ConsoleInteractionService.FileAccessErrorChoice.Skip:
-                                    _logger.LogWarning($"User chose to skip file: {Path.GetFileName(originalFile)}");
-                                    success = false;
-                                    moveSuccessful = true; // Exit the retry loop
-                                    break;
-                                    
-                                case ConsoleInteractionService.FileAccessErrorChoice.Exit:
-                                    _logger.LogInformation("User chose to exit application");
-                                    Environment.Exit(0);
-                                    break;
-                            }
-                        }
-                        else
-                        {
-                            _logger.LogWarning($"File access error (attempt {retryCount}/{maxRetries}): {ioEx.Message}");
-                            _logger.LogInformation($"Waiting 2 seconds before retry...");
-                            await Task.Delay(2000); // Wait 2 seconds before retry
-                        }
-                    }
-                    catch (Exception)
-                    {
-                        // For other exceptions, throw immediately
-                        throw;
-                    }
-                }
-                
-                if (moveSuccessful && success) // Only show success messages if move was successful and we haven't marked as failed
-                {
-                    _consoleOutput.ShowFileRenamed(Path.GetFileName(originalFile), newFileName);
-                    _consoleOutput.ShowFilesMovedTo(movieDir);
-                    _logger.LogInformation($"Renamed: {Path.GetFileName(originalFile)} -> {newFileName}");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error processing movie track {track.Id} for {movieInfo.Title}");
-                success = false;
-            }
+            _logger.LogWarning("No files found to rename");
+            return false;
         }
 
-        return success;
+        // Show confirmation UI with option to re-lookup (only for multiple tracks)
+        if (pendingRenames.Count > 1)
+        {
+            var confirmResult = await _batchRenameService.ConfirmAndProcessRenamesAsync(pendingRenames);
+
+            if (confirmResult.UserCancelled)
+            {
+                _logger.LogInformation("User cancelled batch rename - keeping original filenames");
+                return false;
+            }
+
+            pendingRenames = confirmResult.PendingRenames;
+        }
+
+        // Execute the confirmed renames
+        return await _batchRenameService.ExecuteRenamesAsync(pendingRenames);
     }
 
     private async Task<bool> ProcessUnknownMediaAsync(string outputPath, string discName, List<AkTitle> rippedTracks)

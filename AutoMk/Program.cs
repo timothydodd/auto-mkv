@@ -124,6 +124,9 @@ namespace AutoMk
                     // Register pattern learning service
                     services.AddSingleton<IPatternLearningService, PatternLearningService>();
 
+                    // Register batch rename service
+                    services.AddSingleton<IBatchRenameService, BatchRenameService>();
+
                     // Register discover and name service
                     services.AddSingleton<IDiscoverAndNameService, DiscoverAndNameService>();
 

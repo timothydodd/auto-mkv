@@ -32,6 +32,7 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
     private readonly ConsoleInteractionService _consoleInteraction;
     private readonly IEnhancedOmdbService _enhancedOmdbService;
     private readonly IConsoleOutputService _consoleOutput;
+    private readonly IBatchRenameService _batchRenameService;
 
     public MakeMkAuto(
         RipSettings ripSettings,
@@ -47,7 +48,8 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         ISeriesProfileService profileService,
         ConsoleInteractionService consoleInteraction,
         IEnhancedOmdbService enhancedOmdbService,
-        IConsoleOutputService consoleOutput)
+        IConsoleOutputService consoleOutput,
+        IBatchRenameService batchRenameService)
     {
         _watcher = watcher ?? throw new ArgumentNullException(nameof(watcher));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -64,6 +66,7 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         _consoleInteraction = consoleInteraction ?? throw new ArgumentNullException(nameof(consoleInteraction));
         _enhancedOmdbService = enhancedOmdbService ?? throw new ArgumentNullException(nameof(enhancedOmdbService));
         _consoleOutput = consoleOutput ?? throw new ArgumentNullException(nameof(consoleOutput));
+        _batchRenameService = batchRenameService ?? throw new ArgumentNullException(nameof(batchRenameService));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -889,115 +892,69 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
     {
         _logger.LogInformation($"MANUAL MODE - Processing {movieMapping.Count} movies from multi-movie disc: {discName}");
 
-        var allSuccess = true;
+        // Collect all pending renames using batch rename service
+        var pendingRenames = await _batchRenameService.CollectMovieRenamesAsync(
+            outputPath, discName, movieMapping);
 
-        foreach (var kvp in movieMapping)
+        if (pendingRenames.Count == 0)
         {
-            var track = kvp.Key;
-            var movieInfo = kvp.Value;
-
-            try
-            {
-                var originalFile = FindRippedFile(outputPath, track);
-                if (originalFile == null)
-                {
-                    _logger.LogWarning($"Could not find ripped file for track: {track.Id} - {movieInfo.Title}");
-                    allSuccess = false;
-                    continue;
-                }
-
-                // Generate movie filename using the naming service
-                var extension = Path.GetExtension(originalFile);
-                var movieFileName = _namingService.GenerateMovieFileName(
-                    movieInfo.Title!,
-                    movieInfo.Year,
-                    extension);
-
-                var movieDirectory = _namingService.GetMovieDirectory(outputPath, movieInfo.Title!, movieInfo.Year);
-
-                // Ensure directory exists
-                Directory.CreateDirectory(movieDirectory);
-
-                var newFilePath = Path.Combine(movieDirectory, movieFileName);
-
-                // Move the file
-                File.Move(originalFile, newFilePath);
-                _logger.LogInformation($"MANUAL MODE - Multi-movie: Renamed track {track.Id} to: {movieFileName}");
-                _consoleOutput.ShowFileRenamed(Path.GetFileName(originalFile), movieFileName);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error processing movie '{movieInfo.Title}' from track {track.Id}");
-                allSuccess = false;
-            }
+            _logger.LogWarning("No files found to rename");
+            return false;
         }
 
-        return allSuccess;
+        // Show confirmation UI with option to re-lookup
+        if (pendingRenames.Count > 1)
+        {
+            var confirmResult = await _batchRenameService.ConfirmAndProcessRenamesAsync(pendingRenames);
+
+            if (confirmResult.UserCancelled)
+            {
+                _logger.LogInformation("User cancelled batch rename - keeping original filenames");
+                return false;
+            }
+
+            pendingRenames = confirmResult.PendingRenames;
+        }
+
+        // Execute the confirmed renames
+        var success = await _batchRenameService.ExecuteRenamesAsync(pendingRenames);
+
+        _logger.LogInformation($"MANUAL MODE - Multi-movie disc processing complete. Success: {success}");
+        return success;
     }
 
     private async Task<bool> ProcessManualTvSeriesAsync(string outputPath, string discName, List<AkTitle> rippedTracks, SeriesInfo seriesInfo, Dictionary<AkTitle, EpisodeInfo> episodeMapping)
     {
-        // This is a simplified version that doesn't use state management
-        // Each track is processed according to the manual episode mapping
+        _logger.LogInformation($"MANUAL MODE - Processing {episodeMapping.Count} TV series episodes");
 
-        var success = true;
+        // Collect all pending renames using batch rename service
+        var pendingRenames = await _batchRenameService.CollectManualTvSeriesRenamesAsync(
+            outputPath, discName, seriesInfo, episodeMapping);
 
-        foreach (var kvp in episodeMapping)
+        if (pendingRenames.Count == 0)
         {
-            var track = kvp.Key;
-            var episodeInfo = kvp.Value;
-
-            try
-            {
-                var originalFile = FindRippedFile(outputPath, track);
-                if (originalFile == null)
-                {
-                    _logger.LogWarning($"Could not find ripped file for track: {track.Id}");
-                    success = false;
-                    continue;
-                }
-
-                // Try to get episode details from enhanced OMDB service (uses caching)
-                CachedEpisodeInfo? episodeData = null;
-                try
-                {
-                    episodeData = await _enhancedOmdbService.GetEpisodeInfoAsync(
-                        seriesInfo.Title!,
-                        episodeInfo.Season,
-                        episodeInfo.Episode);
-                }
-                catch (Exception omdbEx)
-                {
-                    _logger.LogWarning(omdbEx, $"Could not fetch episode details from OMDB for S{episodeInfo.Season:D2}E{episodeInfo.Episode:D2}");
-                }
-
-                // Generate episode filename using the naming service
-                var newFileName = _namingService.GenerateEpisodeFileName(
-                    seriesInfo.Title!,
-                    episodeInfo.Season,
-                    episodeInfo.Episode,
-                    episodeData?.Title,
-                    Path.GetExtension(originalFile));
-
-                var newFilePath = Path.Combine(
-                    _namingService.GetSeriesDirectory(outputPath, seriesInfo.Title!),
-                    _namingService.GetSeasonDirectory(episodeInfo.Season),
-                    newFileName);
-
-                // Ensure directory exists
-                Directory.CreateDirectory(Path.GetDirectoryName(newFilePath)!);
-
-                // Move the file
-                File.Move(originalFile, newFilePath);
-                _logger.LogInformation($"MANUAL MODE - Renamed: {Path.GetFileName(originalFile)} -> {newFileName}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error processing manual episode S{episodeInfo.Season:D2}E{episodeInfo.Episode:D2} for {seriesInfo.Title}");
-                success = false;
-            }
+            _logger.LogWarning("No files found to rename");
+            return false;
         }
 
+        // Show confirmation UI with option to re-lookup (only for multiple tracks)
+        if (pendingRenames.Count > 1)
+        {
+            var confirmResult = await _batchRenameService.ConfirmAndProcessRenamesAsync(pendingRenames);
+
+            if (confirmResult.UserCancelled)
+            {
+                _logger.LogInformation("User cancelled batch rename - keeping original filenames");
+                return false;
+            }
+
+            pendingRenames = confirmResult.PendingRenames;
+        }
+
+        // Execute the confirmed renames
+        var success = await _batchRenameService.ExecuteRenamesAsync(pendingRenames);
+
+        _logger.LogInformation($"MANUAL MODE - TV series processing complete. Success: {success}");
         return success;
     }
 
