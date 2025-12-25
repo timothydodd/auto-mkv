@@ -1194,4 +1194,383 @@ public class ConsoleInteractionService
 
         return result;
     }
+
+    /// <summary>
+    /// Result from the size filter adjustment prompt
+    /// </summary>
+    public class SizeFilterResult
+    {
+        public bool Proceed { get; set; }
+        public double MinSizeGB { get; set; }
+        public double MaxSizeGB { get; set; }
+        public bool RipAllTracks { get; set; }
+        public bool SkipDisc { get; set; }
+
+        public static SizeFilterResult Skip() => new() { SkipDisc = true };
+        public static SizeFilterResult RipAll() => new() { Proceed = true, RipAllTracks = true };
+        public static SizeFilterResult WithRange(double min, double max) => new() { Proceed = true, MinSizeGB = min, MaxSizeGB = max };
+    }
+
+    /// <summary>
+    /// Shows available tracks and prompts user to adjust size filter when no tracks match current filter.
+    /// Analyzes tracks to recommend appropriate size ranges for movies vs TV episodes.
+    /// </summary>
+    public SizeFilterResult PromptForSizeFilterAdjustment(
+        IEnumerable<AkTitle> allTracks,
+        string discName,
+        double currentMinSize,
+        double currentMaxSize,
+        string? mediaType = null)
+    {
+        var tracks = allTracks.OrderByDescending(t => t.SizeInGB).ToList();
+
+        if (!tracks.Any())
+        {
+            _promptService.DisplayError("No tracks available on this disc.");
+            return SizeFilterResult.Skip();
+        }
+
+        _promptService.DisplayHeader("NO TRACKS MATCH CURRENT FILTER");
+        AnsiConsole.MarkupLine($"[dim]Disc:[/] [white]{Markup.Escape(discName)}[/]");
+        AnsiConsole.MarkupLine($"[dim]Current filter:[/] [yellow]{currentMinSize:F2} - {currentMaxSize:F2} GB[/]");
+        AnsiConsole.WriteLine();
+
+        // Analyze tracks to determine media type and recommend sizes
+        var analysis = AnalyzeTracksForSizeRecommendation(tracks, mediaType);
+
+        // Display all tracks with highlighting for recommended range
+        AnsiConsole.MarkupLine("[cyan]Available tracks on disc:[/]");
+        AnsiConsole.WriteLine();
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn(new TableColumn("[white]#[/]").Centered())
+            .AddColumn(new TableColumn("[white]Track Name[/]"))
+            .AddColumn(new TableColumn("[white]Size[/]").RightAligned())
+            .AddColumn(new TableColumn("[white]Duration[/]").RightAligned())
+            .AddColumn(new TableColumn("[white]Chapters[/]").RightAligned())
+            .AddColumn(new TableColumn("[white]Match?[/]").Centered());
+
+        int index = 1;
+        foreach (var track in tracks)
+        {
+            bool wouldMatch = track.SizeInGB >= analysis.RecommendedMin && track.SizeInGB <= analysis.RecommendedMax;
+            var duration = TimeSpan.FromSeconds(track.LengthInSeconds);
+            var durationStr = duration.Hours > 0
+                ? $"{duration.Hours}h {duration.Minutes}m"
+                : $"{duration.Minutes}m {duration.Seconds}s";
+
+            var sizeStyle = wouldMatch ? "[green]" : "[dim]";
+            var matchIndicator = wouldMatch ? "[green]Yes[/]" : "[dim]-[/]";
+
+            table.AddRow(
+                $"[cyan]{index}[/]",
+                Markup.Escape(TruncateString(track.Name ?? track.Id, 35)),
+                $"{sizeStyle}{track.SizeInGB:F2} GB[/]",
+                $"[dim]{durationStr}[/]",
+                $"[dim]{track.ChapterCount}[/]",
+                matchIndicator
+            );
+            index++;
+        }
+
+        AnsiConsole.Write(table);
+        AnsiConsole.WriteLine();
+
+        // Show recommendation panel
+        var mediaTypeGuess = analysis.LikelyType == MediaTypeGuess.Movie ? "Movie" : "TV Episodes";
+        var recommendationPanel = new Panel(
+            $"[white]Detected media type:[/] [cyan]{mediaTypeGuess}[/]\n" +
+            $"[white]Recommended size range:[/] [green]{analysis.RecommendedMin:F2} - {analysis.RecommendedMax:F2} GB[/]\n" +
+            $"[dim]{analysis.RecommendationReason}[/]")
+        {
+            Header = new PanelHeader("[yellow]Recommendation[/]"),
+            Border = BoxBorder.Rounded,
+            BorderStyle = new Style(Color.Yellow)
+        };
+        AnsiConsole.Write(recommendationPanel);
+        AnsiConsole.WriteLine();
+
+        // Ask user what to do
+        var choices = new List<PromptChoice>
+        {
+            new("recommend", $"Use recommended range ({analysis.RecommendedMin:F2} - {analysis.RecommendedMax:F2} GB)"),
+            new("custom", "Enter custom size range"),
+            new("all", "Rip all tracks (ignore size filter)"),
+            new("skip", "Skip this disc")
+        };
+
+        var result = _promptService.SelectPrompt(new SelectPromptOptions
+        {
+            Question = "What would you like to do?",
+            Choices = choices,
+            AllowCancel = true
+        });
+
+        if (!result.Success || result.Cancelled)
+        {
+            _logger.LogInformation("User cancelled size filter adjustment");
+            return SizeFilterResult.Skip();
+        }
+
+        switch (result.Value)
+        {
+            case "recommend":
+                _logger.LogInformation($"User accepted recommended size range: {analysis.RecommendedMin:F2} - {analysis.RecommendedMax:F2} GB");
+                return SizeFilterResult.WithRange(analysis.RecommendedMin, analysis.RecommendedMax);
+
+            case "custom":
+                return PromptForCustomSizeRange(tracks, analysis);
+
+            case "all":
+                _logger.LogInformation("User chose to rip all tracks, ignoring size filter");
+                return SizeFilterResult.RipAll();
+
+            case "skip":
+            default:
+                _logger.LogInformation("User chose to skip disc");
+                return SizeFilterResult.Skip();
+        }
+    }
+
+    private SizeFilterResult PromptForCustomSizeRange(List<AkTitle> tracks, TrackAnalysis analysis)
+    {
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[cyan]Enter custom size range:[/]");
+        AnsiConsole.MarkupLine($"[dim]Available track sizes: {tracks.Min(t => t.SizeInGB):F2} GB - {tracks.Max(t => t.SizeInGB):F2} GB[/]");
+        AnsiConsole.WriteLine();
+
+        var minResult = _promptService.TextPrompt(new TextPromptOptions
+        {
+            Question = "Minimum size in GB:",
+            Required = true,
+            PromptText = "Min Size",
+            DefaultValue = analysis.RecommendedMin.ToString("F2"),
+            ValidationPattern = @"^\d+(\.\d+)?$",
+            ValidationMessage = "Please enter a valid number"
+        });
+
+        if (!minResult.Success || !double.TryParse(minResult.Value, out var minSize))
+        {
+            return SizeFilterResult.Skip();
+        }
+
+        var maxResult = _promptService.TextPrompt(new TextPromptOptions
+        {
+            Question = "Maximum size in GB:",
+            Required = true,
+            PromptText = "Max Size",
+            DefaultValue = analysis.RecommendedMax.ToString("F2"),
+            ValidationPattern = @"^\d+(\.\d+)?$",
+            ValidationMessage = "Please enter a valid number"
+        });
+
+        if (!maxResult.Success || !double.TryParse(maxResult.Value, out var maxSize))
+        {
+            return SizeFilterResult.Skip();
+        }
+
+        // Validate range
+        if (minSize > maxSize)
+        {
+            (minSize, maxSize) = (maxSize, minSize);
+        }
+
+        // Show how many tracks would match
+        var matchingTracks = tracks.Count(t => t.SizeInGB >= minSize && t.SizeInGB <= maxSize);
+        AnsiConsole.MarkupLine($"[green]{matchingTracks} track(s) match this range[/]");
+
+        if (matchingTracks == 0)
+        {
+            AnsiConsole.MarkupLine("[yellow]Warning: No tracks match this range![/]");
+            var confirmResult = _promptService.ConfirmPrompt(new ConfirmPromptOptions
+            {
+                Question = "Use this range anyway?",
+                DefaultValue = false
+            });
+
+            if (!confirmResult.Success || !confirmResult.Value)
+            {
+                return PromptForCustomSizeRange(tracks, analysis);
+            }
+        }
+
+        _logger.LogInformation($"User set custom size range: {minSize:F2} - {maxSize:F2} GB");
+        return SizeFilterResult.WithRange(minSize, maxSize);
+    }
+
+    private enum MediaTypeGuess
+    {
+        Movie,
+        TvEpisodes,
+        Unknown
+    }
+
+    private class TrackAnalysis
+    {
+        public MediaTypeGuess LikelyType { get; set; }
+        public double RecommendedMin { get; set; }
+        public double RecommendedMax { get; set; }
+        public string RecommendationReason { get; set; } = string.Empty;
+    }
+
+    private TrackAnalysis AnalyzeTracksForSizeRecommendation(List<AkTitle> tracks, string? knownMediaType)
+    {
+        var sortedBySize = tracks.OrderByDescending(t => t.SizeInGB).ToList();
+        var largestTrack = sortedBySize.First();
+        var smallestTrack = sortedBySize.Last();
+
+        // If we already know the media type, use that
+        if (!string.IsNullOrEmpty(knownMediaType))
+        {
+            if (knownMediaType.Equals("movie", StringComparison.OrdinalIgnoreCase))
+            {
+                return AnalyzeForMovie(sortedBySize, largestTrack);
+            }
+            else if (knownMediaType.Equals("series", StringComparison.OrdinalIgnoreCase))
+            {
+                return AnalyzeForTvSeries(sortedBySize);
+            }
+        }
+
+        // Try to guess based on track characteristics
+        // Heuristics:
+        // - Movies: Usually 1-2 large tracks (main feature + maybe extended cut), rest are small bonus features
+        // - TV Series: Multiple tracks of similar sizes (episodes are similar length)
+
+        // Check for TV series pattern: multiple tracks within a reasonable size range of each other
+        var sizeGroups = GroupTracksBySimilarSize(sortedBySize);
+        var largestGroup = sizeGroups.OrderByDescending(g => g.Count).First();
+
+        // If the largest group has 3+ tracks and they're within 50% size of each other, likely TV episodes
+        if (largestGroup.Count >= 3)
+        {
+            var groupSizes = largestGroup.Select(t => t.SizeInGB).ToList();
+            var sizeRatio = groupSizes.Max() / groupSizes.Min();
+
+            if (sizeRatio <= 2.0) // Episodes are usually within 2x size of each other
+            {
+                return AnalyzeForTvSeries(sortedBySize, largestGroup);
+            }
+        }
+
+        // If the largest track is more than 4x the median track size, likely a movie
+        var medianSize = sortedBySize[sortedBySize.Count / 2].SizeInGB;
+        if (largestTrack.SizeInGB > medianSize * 4)
+        {
+            return AnalyzeForMovie(sortedBySize, largestTrack);
+        }
+
+        // Default to TV series analysis if we have multiple similar tracks
+        if (tracks.Count > 1)
+        {
+            return AnalyzeForTvSeries(sortedBySize);
+        }
+
+        // Single track - treat as movie
+        return AnalyzeForMovie(sortedBySize, largestTrack);
+    }
+
+    private TrackAnalysis AnalyzeForMovie(List<AkTitle> sortedBySize, AkTitle largestTrack)
+    {
+        // For movies, the main feature is usually the largest track
+        // Set min to 50% of the largest track to catch extended editions, director's cuts, etc.
+        // Set max to slightly above the largest
+
+        var recommendedMin = Math.Max(largestTrack.SizeInGB * 0.5, 1.0);
+        var recommendedMax = largestTrack.SizeInGB * 1.1;
+
+        // Count how many tracks match
+        var matchingCount = sortedBySize.Count(t => t.SizeInGB >= recommendedMin && t.SizeInGB <= recommendedMax);
+
+        return new TrackAnalysis
+        {
+            LikelyType = MediaTypeGuess.Movie,
+            RecommendedMin = Math.Round(recommendedMin, 2),
+            RecommendedMax = Math.Round(recommendedMax, 2),
+            RecommendationReason = $"Largest track ({largestTrack.SizeInGB:F2} GB) is likely the main feature. " +
+                                  $"This range would select {matchingCount} track(s)."
+        };
+    }
+
+    private TrackAnalysis AnalyzeForTvSeries(List<AkTitle> sortedBySize, List<AkTitle>? episodeGroup = null)
+    {
+        // For TV series, find the cluster of similar-sized tracks (episodes)
+        var candidates = episodeGroup ?? sortedBySize;
+
+        if (candidates.Count == 0)
+        {
+            return new TrackAnalysis
+            {
+                LikelyType = MediaTypeGuess.TvEpisodes,
+                RecommendedMin = 0.5,
+                RecommendedMax = 5.0,
+                RecommendationReason = "Default TV episode range"
+            };
+        }
+
+        var sizes = candidates.Select(t => t.SizeInGB).ToList();
+        var avgSize = sizes.Average();
+        var minEpisodeSize = sizes.Min();
+        var maxEpisodeSize = sizes.Max();
+
+        // Set range slightly outside the found episode sizes
+        var recommendedMin = Math.Max(minEpisodeSize * 0.85, 0.1);
+        var recommendedMax = maxEpisodeSize * 1.15;
+
+        // Round to 2 decimal places
+        recommendedMin = Math.Round(recommendedMin, 2);
+        recommendedMax = Math.Round(recommendedMax, 2);
+
+        // Count how many tracks match
+        var matchingCount = sortedBySize.Count(t => t.SizeInGB >= recommendedMin && t.SizeInGB <= recommendedMax);
+
+        return new TrackAnalysis
+        {
+            LikelyType = MediaTypeGuess.TvEpisodes,
+            RecommendedMin = recommendedMin,
+            RecommendedMax = recommendedMax,
+            RecommendationReason = $"Found {candidates.Count} episodes averaging {avgSize:F2} GB. " +
+                                  $"This range would select {matchingCount} track(s)."
+        };
+    }
+
+    private List<List<AkTitle>> GroupTracksBySimilarSize(List<AkTitle> tracks)
+    {
+        if (tracks.Count == 0) return new List<List<AkTitle>>();
+
+        var groups = new List<List<AkTitle>>();
+        var sorted = tracks.OrderBy(t => t.SizeInGB).ToList();
+
+        var currentGroup = new List<AkTitle> { sorted[0] };
+        var groupBaseSize = sorted[0].SizeInGB;
+
+        for (int i = 1; i < sorted.Count; i++)
+        {
+            var track = sorted[i];
+            // If this track is within 50% of the group base size, add it to the group
+            if (track.SizeInGB <= groupBaseSize * 1.5 && track.SizeInGB >= groupBaseSize * 0.67)
+            {
+                currentGroup.Add(track);
+            }
+            else
+            {
+                groups.Add(currentGroup);
+                currentGroup = new List<AkTitle> { track };
+                groupBaseSize = track.SizeInGB;
+            }
+        }
+
+        groups.Add(currentGroup);
+        return groups;
+    }
+
+    private static string TruncateString(string value, int maxLength)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length <= maxLength)
+        {
+            return value ?? "";
+        }
+        return value[..(maxLength - 3)] + "...";
+    }
 }

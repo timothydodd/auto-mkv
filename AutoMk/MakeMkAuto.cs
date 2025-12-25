@@ -474,20 +474,30 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
                             titlesToRip = _makeMkvService.FilterTitlesBySizeAndChapters(drive, minSizeToUse, maxSizeToUse, minChapters, maxChapters);
                             if (!titlesToRip.Any())
                             {
-                                _consoleOutput.ShowWarning($"No titles found in size range {minSizeToUse}-{maxSizeToUse} GB and chapter range {minChapters}-{maxChapters} on drive {drive.Id}");
-                                return;
+                                var adjustedTracks = await HandleNoTracksMatchFilterAsync(
+                                    drive, minSizeToUse, maxSizeToUse, "series", mediaInfo.MediaData.Title);
+                                if (adjustedTracks == null) return;
+                                titlesToRip = adjustedTracks;
                             }
-                            _logger.LogInformation($"TV series - found {titlesToRip.Count} titles using custom size range: {minSizeToUse} - {maxSizeToUse} GB and chapters: {minChapters} - {maxChapters}");
+                            else
+                            {
+                                _logger.LogInformation($"TV series - found {titlesToRip.Count} titles using custom size range: {minSizeToUse} - {maxSizeToUse} GB and chapters: {minChapters} - {maxChapters}");
+                            }
                         }
                         else
                         {
                             titlesToRip = _makeMkvService.FilterTitlesBySize(drive, minSizeToUse, maxSizeToUse);
                             if (!titlesToRip.Any())
                             {
-                                _consoleOutput.ShowWarning($"No titles found in custom size range {minSizeToUse}-{maxSizeToUse} GB on drive {drive.Id}");
-                                return;
+                                var adjustedTracks = await HandleNoTracksMatchFilterAsync(
+                                    drive, minSizeToUse, maxSizeToUse, "series", mediaInfo.MediaData.Title);
+                                if (adjustedTracks == null) return;
+                                titlesToRip = adjustedTracks;
                             }
-                            _logger.LogInformation($"TV series - found {titlesToRip.Count} titles using custom size range: {minSizeToUse} - {maxSizeToUse} GB");
+                            else
+                            {
+                                _logger.LogInformation($"TV series - found {titlesToRip.Count} titles using custom size range: {minSizeToUse} - {maxSizeToUse} GB");
+                            }
                         }
                     }
                     else
@@ -500,20 +510,32 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
                             titlesToRip = sizeCandidates.Where(t => t.ChapterCount >= minChapters && t.ChapterCount <= maxChapters).ToList();
                             if (!titlesToRip.Any())
                             {
-                                _consoleOutput.ShowWarning($"No titles found meeting minimum size requirement of {minSizeToUse} GB and chapter range {minChapters}-{maxChapters} on drive {drive.Id}");
-                                return;
+                                // For dynamic filtering, use a reasonable max based on smallest + buffer
+                                var estimatedMax = sizeCandidates.Any() ? sizeCandidates.Max(t => t.SizeInGB) * 1.5 : _ripSettings.MaxSizeGB;
+                                var adjustedTracks = await HandleNoTracksMatchFilterAsync(
+                                    drive, minSizeToUse, estimatedMax, "series", mediaInfo.MediaData.Title);
+                                if (adjustedTracks == null) return;
+                                titlesToRip = adjustedTracks;
                             }
-                            _logger.LogInformation($"TV series - found {titlesToRip.Count} titles using dynamic size filtering (min: {minSizeToUse} GB) and chapters: {minChapters} - {maxChapters}");
+                            else
+                            {
+                                _logger.LogInformation($"TV series - found {titlesToRip.Count} titles using dynamic size filtering (min: {minSizeToUse} GB) and chapters: {minChapters} - {maxChapters}");
+                            }
                         }
                         else
                         {
                             titlesToRip = _makeMkvService.FilterTitlesBySizeForTvSeries(drive, minSizeToUse);
                             if (!titlesToRip.Any())
                             {
-                                _consoleOutput.ShowWarning($"No titles found meeting minimum size requirement of {minSizeToUse} GB on drive {drive.Id}");
-                                return;
+                                var adjustedTracks = await HandleNoTracksMatchFilterAsync(
+                                    drive, minSizeToUse, _ripSettings.MaxSizeGB, "series", mediaInfo.MediaData.Title);
+                                if (adjustedTracks == null) return;
+                                titlesToRip = adjustedTracks;
                             }
-                            _logger.LogInformation($"TV series - found {titlesToRip.Count} titles using dynamic size filtering (min: {minSizeToUse} GB)");
+                            else
+                            {
+                                _logger.LogInformation($"TV series - found {titlesToRip.Count} titles using dynamic size filtering (min: {minSizeToUse} GB)");
+                            }
                         }
                     }
                 }
@@ -525,8 +547,14 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
                         titlesToRip = _makeMkvService.FilterTitlesBySizeAndChapters(drive, _ripSettings.MinSizeGB, _ripSettings.MaxSizeGB, _ripSettings.MinChapters, _ripSettings.MaxChapters);
                         if (!titlesToRip.Any())
                         {
-                            _consoleOutput.ShowWarning($"No titles found in size range {_ripSettings.MinSizeGB}-{_ripSettings.MaxSizeGB} GB and chapter range {_ripSettings.MinChapters}-{_ripSettings.MaxChapters} on drive {drive.Id}");
-                            return;
+                            var adjustedResult = await HandleNoTracksMatchFilterAsync(
+                                drive, _ripSettings.MinSizeGB, _ripSettings.MaxSizeGB, null, null);
+                            if (adjustedResult == null)
+                            {
+                                _consoleOutput.ShowWarning($"No titles found in size range {_ripSettings.MinSizeGB}-{_ripSettings.MaxSizeGB} GB and chapter range {_ripSettings.MinChapters}-{_ripSettings.MaxChapters} on drive {drive.Id}");
+                                return;
+                            }
+                            titlesToRip = adjustedResult;
                         }
                         _logger.LogInformation($"Unknown media - found {titlesToRip.Count} titles in size range {_ripSettings.MinSizeGB}-{_ripSettings.MaxSizeGB} GB and chapter range {_ripSettings.MinChapters}-{_ripSettings.MaxChapters}");
                     }
@@ -535,8 +563,14 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
                         titlesToRip = _makeMkvService.FilterTitlesBySize(drive, _ripSettings.MinSizeGB, _ripSettings.MaxSizeGB);
                         if (!titlesToRip.Any())
                         {
-                            _consoleOutput.ShowWarning($"No titles found in size range {_ripSettings.MinSizeGB}-{_ripSettings.MaxSizeGB} GB on drive {drive.Id}");
-                            return;
+                            var adjustedResult = await HandleNoTracksMatchFilterAsync(
+                                drive, _ripSettings.MinSizeGB, _ripSettings.MaxSizeGB, null, null);
+                            if (adjustedResult == null)
+                            {
+                                _consoleOutput.ShowWarning($"No titles found in size range {_ripSettings.MinSizeGB}-{_ripSettings.MaxSizeGB} GB on drive {drive.Id}");
+                                return;
+                            }
+                            titlesToRip = adjustedResult;
                         }
                         _logger.LogInformation($"Unknown media - found {titlesToRip.Count} titles in size range {_ripSettings.MinSizeGB}-{_ripSettings.MaxSizeGB} GB");
                     }
@@ -976,4 +1010,90 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         return null;
     }
 
+    /// <summary>
+    /// Prompts the user when no tracks match the current size filter.
+    /// Returns a list of tracks to rip, or null if the user chooses to skip.
+    /// </summary>
+    private async Task<List<AkTitle>?> HandleNoTracksMatchFilterAsync(
+        AkDriveInfo drive,
+        double currentMinSize,
+        double currentMaxSize,
+        string? mediaType,
+        string? seriesTitle = null)
+    {
+        var allTracks = drive.Titles.Values.ToList();
+
+        var result = _consoleInteraction.PromptForSizeFilterAdjustment(
+            allTracks,
+            drive.CDName,
+            currentMinSize,
+            currentMaxSize,
+            mediaType);
+
+        if (result.SkipDisc)
+        {
+            _logger.LogInformation("User chose to skip disc due to size filter issues");
+            return null;
+        }
+
+        if (result.RipAllTracks)
+        {
+            _logger.LogInformation($"User chose to rip all {allTracks.Count} tracks, ignoring size filter");
+            return allTracks;
+        }
+
+        if (result.Proceed)
+        {
+            // Save the new size range to the series state if we have a series title
+            if (!string.IsNullOrEmpty(seriesTitle))
+            {
+                await SaveSizeRangeToSeriesStateAsync(seriesTitle, result.MinSizeGB, result.MaxSizeGB);
+            }
+
+            // Re-filter with the new range
+            var filteredTracks = allTracks
+                .Where(t => t.SizeInGB >= result.MinSizeGB && t.SizeInGB <= result.MaxSizeGB)
+                .ToList();
+
+            _logger.LogInformation($"Re-filtered with user range ({result.MinSizeGB:F2} - {result.MaxSizeGB:F2} GB): {filteredTracks.Count} tracks");
+            return filteredTracks;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Saves the selected size range to the series state for future discs.
+    /// </summary>
+    private async Task SaveSizeRangeToSeriesStateAsync(string seriesTitle, double minSize, double maxSize)
+    {
+        try
+        {
+            var existingState = await _stateManager.GetExistingSeriesStateAsync(seriesTitle);
+
+            if (existingState != null)
+            {
+                existingState.MinEpisodeSizeGB = minSize;
+                existingState.MaxEpisodeSizeGB = maxSize;
+                await _stateManager.SaveSeriesStateAsync(existingState);
+                _logger.LogInformation($"Updated series state for {seriesTitle} with size range: {minSize:F2} - {maxSize:F2} GB");
+            }
+            else
+            {
+                // Create a minimal state to save the size range
+                var newState = new SeriesState
+                {
+                    SeriesTitle = seriesTitle,
+                    MinEpisodeSizeGB = minSize,
+                    MaxEpisodeSizeGB = maxSize
+                };
+                await _stateManager.SaveSeriesStateAsync(newState);
+                _logger.LogInformation($"Created new series state for {seriesTitle} with size range: {minSize:F2} - {maxSize:F2} GB");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, $"Failed to save size range to series state for {seriesTitle}");
+        }
+    }
 }
