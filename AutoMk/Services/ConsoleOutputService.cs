@@ -206,36 +206,18 @@ public class ConsoleOutputService : IConsoleOutputService
 
     /// <summary>
     /// Outputs file transfer progress with time remaining.
-    /// Note: When ProgressManager is active, file transfer progress is handled via progress tasks,
-    /// so this method only outputs when ProgressManager is not active (legacy fallback).
+    /// Note: File transfer progress is ONLY shown when ProgressManager is active (during ripping).
+    /// When ProgressManager is not active, user prompts may be happening - we don't want to interfere.
     /// </summary>
     public void ShowFileTransferProgress(string fileName, long bytesTransferred, long totalBytes, TimeSpan timeRemaining, double transferRateMBps)
     {
-        // When ProgressManager is active, file transfers use progress tasks instead
-        // This fallback is only used when ProgressManager is not running
-        if (!_progressManager.IsActive && _enableConsoleOutput)
-        {
-            var percentage = totalBytes > 0 ? (bytesTransferred * 100.0 / totalBytes) : 0;
-            var transferredGB = bytesTransferred / (1024.0 * 1024.0 * 1024.0);
-            var totalGB = totalBytes / (1024.0 * 1024.0 * 1024.0);
+        // Only show progress when ProgressManager is active (during ripping phase)
+        // When inactive, user prompts may be happening - don't use \r to avoid disrupting input
+        // File transfers will continue in background, just without visual progress during prompts
 
-            var timeRemainingStr = timeRemaining.TotalHours >= 1
-                ? $"{timeRemaining.Hours:D2}h {timeRemaining.Minutes:D2}m {timeRemaining.Seconds:D2}s"
-                : $"{timeRemaining.Minutes:D2}m {timeRemaining.Seconds:D2}s";
-
-            // Create a colorful progress bar
-            var progressWidth = 25;
-            var filledWidth = (int)(percentage / 100.0 * progressWidth);
-            var emptyWidth = progressWidth - filledWidth;
-            var progressBar = $"[green]{new string('━', filledWidth)}[/][dim]{new string('─', emptyWidth)}[/]";
-
-            // Truncate filename if too long
-            var displayName = fileName.Length > 30 ? fileName.Substring(0, 27) + "..." : fileName.PadRight(30);
-
-            // Clear line and write progress (use Console.Write for reliable \r behavior)
-            Console.Write("\r" + new string(' ', Console.WindowWidth - 1) + "\r");
-            AnsiConsole.Markup($"[dim]{Markup.Escape(displayName)}[/] [[{progressBar}]] [yellow]{percentage,5:F1}%[/] [cyan]{transferRateMBps,5:F1} MB/s[/] [dim]ETA:[/] {timeRemainingStr,-12}");
-        }
+        // When ProgressManager IS active, progress is shown via progress tasks in FileTransferClient
+        // This method is kept for compatibility but effectively does nothing now
+        // The actual progress display is handled by ProgressManager's Progress API
     }
 
     /// <summary>

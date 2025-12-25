@@ -218,7 +218,7 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         }
     }
 
-    public SeriesProfile PromptForCompleteSeriesProfile(string seriesTitle, string discName)
+    public SeriesProfile PromptForCompleteSeriesProfile(string seriesTitle, string discName, List<AkTitle>? tracks = null)
     {
         _promptService.DisplayHeader("NEW TV SERIES CONFIGURATION");
         AnsiConsole.MarkupLine($"[dim]Series:[/] [white]{Markup.Escape(seriesTitle)}[/]");
@@ -227,6 +227,30 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         AnsiConsole.MarkupLine("[cyan]This is a new TV series. Let's configure all settings upfront to minimize[/]");
         AnsiConsole.MarkupLine("[cyan]interruptions during the ripping process.[/]");
         AnsiConsole.WriteLine();
+
+        // Show tracks if available to help user choose size range
+        if (tracks != null && tracks.Any())
+        {
+            AnsiConsole.MarkupLine("[yellow]Available tracks on this disc:[/]");
+            var table = new Table()
+                .Border(TableBorder.Rounded)
+                .AddColumn("Track")
+                .AddColumn("Size (GB)")
+                .AddColumn("Duration")
+                .AddColumn("Chapters");
+
+            foreach (var track in tracks.OrderBy(t => t.Id))
+            {
+                table.AddRow(
+                    Markup.Escape(track.Name ?? $"Title {track.Id}"),
+                    $"{track.SizeInGB:F2}",
+                    track.Length ?? "-",
+                    track.ChapterCount.ToString()
+                );
+            }
+            AnsiConsole.Write(table);
+            AnsiConsole.WriteLine();
+        }
 
         var profile = new SeriesProfile
         {

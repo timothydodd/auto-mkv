@@ -360,6 +360,15 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
                 {
                     _logger.LogInformation($"Found existing series state for {mediaInfo.MediaData.Title} with {existingSeriesState.ProcessedDiscs.Count} processed discs. Using existing configuration.");
 
+                    // Show user the existing configuration
+                    _consoleOutput.ShowSuccess($"Found existing configuration for: {mediaInfo.MediaData.Title}");
+                    if (existingSeriesState.MinEpisodeSizeGB.HasValue && existingSeriesState.MaxEpisodeSizeGB.HasValue)
+                    {
+                        _consoleOutput.ShowInfo($"  Episode size filter: {existingSeriesState.MinEpisodeSizeGB:F1} - {existingSeriesState.MaxEpisodeSizeGB:F1} GB");
+                    }
+                    _consoleOutput.ShowInfo($"  Current position: Season {existingSeriesState.CurrentSeason}, Episode {existingSeriesState.NextEpisode}");
+                    _consoleOutput.ShowInfo($"  Processed discs: {existingSeriesState.ProcessedDiscs.Count}");
+
                     // If we don't have a profile yet, create one from the existing state
                     if (profile == null)
                     {
@@ -395,11 +404,12 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
                 }
                 else
                 {
-                    // Truly new series - prompt for complete profile
+                    // Truly new series - prompt for complete profile (pass tracks so user can see sizes)
                     _logger.LogInformation($"New TV series detected: {mediaInfo.MediaData.Title}. Prompting for complete profile.");
                     profile = _consoleInteraction.PromptForCompleteSeriesProfile(
                         mediaInfo.MediaData.Title!,
-                        drive.CDName);
+                        drive.CDName,
+                        drive.Titles.Values.ToList());
 
                     await _profileService.CreateOrUpdateProfileAsync(profile);
 
@@ -452,8 +462,18 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
                     bool useCustomSizeRange = false;
 
                     // Try to get existing series state to check for custom episode size range
+                    _logger.LogDebug($"Looking up series state for title: '{mediaInfo.MediaData.Title}'");
                     var existingSeriesState = await _stateManager.GetExistingSeriesStateAsync(
                         mediaInfo.MediaData.Title!);
+
+                    if (existingSeriesState != null)
+                    {
+                        _logger.LogDebug($"Found series state: SeriesTitle='{existingSeriesState.SeriesTitle}', MinEpisodeSizeGB={existingSeriesState.MinEpisodeSizeGB}, MaxEpisodeSizeGB={existingSeriesState.MaxEpisodeSizeGB}");
+                    }
+                    else
+                    {
+                        _logger.LogDebug($"No series state found for title: '{mediaInfo.MediaData.Title}'");
+                    }
 
                     if (existingSeriesState?.MinEpisodeSizeGB.HasValue == true && existingSeriesState?.MaxEpisodeSizeGB.HasValue == true)
                     {
@@ -461,6 +481,10 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
                         maxSizeToUse = existingSeriesState.MaxEpisodeSizeGB.Value;
                         useCustomSizeRange = true;
                         _logger.LogInformation($"Using series-specific episode size range for {mediaInfo.MediaData.Title}: {minSizeToUse} - {maxSizeToUse} GB");
+                    }
+                    else
+                    {
+                        _logger.LogDebug($"No custom episode size range set for {mediaInfo.MediaData.Title}, using defaults: {minSizeToUse} - {maxSizeToUse} GB");
                     }
 
                     // Get chapter filtering parameters
@@ -663,10 +687,11 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
                     }
                     else
                     {
-                        // If no existing profile, create a new one from scratch
+                        // If no existing profile, create a new one from scratch (pass tracks so user can see sizes)
                         newProfile = _consoleInteraction.PromptForCompleteSeriesProfile(
                             mediaInfo.MediaData.Title!,
-                            drive.CDName);
+                            drive.CDName,
+                            titlesToRip);
                     }
 
                     await _profileService.CreateOrUpdateProfileAsync(newProfile);

@@ -57,8 +57,9 @@ public interface ISeriesConfigurationService
     /// </summary>
     /// <param name="seriesTitle">The title of the TV series</param>
     /// <param name="discName">The name of the disc being processed</param>
+    /// <param name="tracks">Optional list of tracks on the disc to help user set size filters</param>
     /// <returns>A complete series profile with all user-configured settings</returns>
-    SeriesProfile PromptForCompleteSeriesProfile(string seriesTitle, string discName);
+    SeriesProfile PromptForCompleteSeriesProfile(string seriesTitle, string discName, List<AkTitle>? tracks = null);
 
     /// <summary>
     /// Prompts user to modify existing series profile settings

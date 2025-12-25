@@ -682,9 +682,9 @@ public class ConsoleInteractionService
             seriesTitle, trackName, trackLengthSeconds, minEpisodeLengthSeconds);
     }
 
-    public SeriesProfile PromptForCompleteSeriesProfile(string seriesTitle, string discName)
+    public SeriesProfile PromptForCompleteSeriesProfile(string seriesTitle, string discName, List<AkTitle>? tracks = null)
     {
-        return _seriesConfigurationService.PromptForCompleteSeriesProfile(seriesTitle, discName);
+        return _seriesConfigurationService.PromptForCompleteSeriesProfile(seriesTitle, discName, tracks);
     }
 
     public SeriesProfile PromptForModifySeriesProfile(SeriesProfile existingProfile, string discName)
