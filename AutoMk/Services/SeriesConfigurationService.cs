@@ -67,7 +67,7 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         return (season, episode);
     }
 
-    public (double? minSize, double? maxSize) PromptForEpisodeSizeRange(string seriesTitle)
+    public (double? minSize, double? maxSize) PromptForEpisodeSizeRange(string seriesTitle, List<AkTitle>? tracks = null)
     {
         _promptService.DisplayHeader("NEW TV SERIES DETECTED - Episode Size Filter");
         AnsiConsole.MarkupLine($"[dim]Series:[/] [white]{Markup.Escape(seriesTitle)}[/]");
@@ -91,6 +91,31 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         {
             _logger.LogInformation($"User chose to use default filtering for series: {seriesTitle}");
             return (null, null);
+        }
+
+        // Display tracks table so user can see sizes when entering min/max values
+        if (tracks != null && tracks.Any())
+        {
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[yellow]Available tracks on this disc (for size reference):[/]");
+            var table = new Table()
+                .Border(TableBorder.Rounded)
+                .AddColumn("Track")
+                .AddColumn("Size (GB)")
+                .AddColumn("Duration")
+                .AddColumn("Chapters");
+
+            foreach (var track in tracks.OrderBy(t => t.Id))
+            {
+                table.AddRow(
+                    Markup.Escape(track.Name ?? $"Title {track.Id}"),
+                    $"{track.SizeInGB:F2}",
+                    track.Length ?? "-",
+                    track.ChapterCount.ToString()
+                );
+            }
+            AnsiConsole.Write(table);
+            AnsiConsole.WriteLine();
         }
 
         return PromptForSizeRange();
@@ -259,7 +284,7 @@ public class SeriesConfigurationService : ISeriesConfigurationService
 
         // 1. Episode Size Range
         AnsiConsole.Write(new Rule("[yellow]STEP 1/6: Episode Size Filtering[/]") { Justification = Justify.Left });
-        var (minSize, maxSize) = PromptForEpisodeSizeRange(seriesTitle);
+        var (minSize, maxSize) = PromptForEpisodeSizeRange(seriesTitle, tracks);
         profile.MinEpisodeSizeGB = minSize;
         profile.MaxEpisodeSizeGB = maxSize;
         AnsiConsole.WriteLine();

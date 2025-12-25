@@ -761,6 +761,22 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         // Determine output path for ripping (temporary)
         string tempOutputPath = GetOutputPath(drive);
 
+        // Debug output: Show filter range and selected tracks before ripping
+        if (mediaInfo?.MediaData?.Type?.Equals("series", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            var debugSeriesState = await _stateManager.GetExistingSeriesStateAsync(mediaInfo.MediaData.Title!);
+            var debugMinSize = debugSeriesState?.MinEpisodeSizeGB ?? _ripSettings.MinSizeGB;
+            var debugMaxSize = debugSeriesState?.MaxEpisodeSizeGB ?? _ripSettings.MaxSizeGB;
+
+            _consoleOutput.ShowInfo($"[DEBUG] Filter range: {debugMinSize:F2} - {debugMaxSize:F2} GB");
+            _consoleOutput.ShowInfo($"[DEBUG] Selected {titlesToRip.Count} tracks to rip:");
+            foreach (var track in titlesToRip.OrderBy(t => t.Id))
+            {
+                var sizeStatus = (track.SizeInGB >= debugMinSize && track.SizeInGB <= debugMaxSize) ? "OK" : "OUT OF RANGE";
+                _consoleOutput.ShowInfo($"  - {track.Name ?? $"Title {track.Id}"}: {track.SizeInGB:F2} GB [{sizeStatus}]");
+            }
+        }
+
         // Start progress display for ripping and file operations
         await _progressManager.StartAsync();
 
@@ -768,15 +784,15 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         _logger.LogInformation($"Ripping {titlesToRip.Count} titles from disc: {drive.CDName}");
         await _makeMkvService.RipTitlesAsync(drive, titlesToRip, tempOutputPath);
 
+        // Stop progress display after ripping completes (before prompts)
+        await _progressManager.StopAsync();
+
         // Now process and rename the ripped media
         _logger.LogInformation($"Processing and renaming ripped media from disc: {drive.CDName}");
         bool mediaProcessSuccess;
 
         // Pass the pre-identified media info to avoid duplicate lookups
         mediaProcessSuccess = await _mediaService.ProcessRippedMediaAsync(tempOutputPath, drive.CDName, titlesToRip, mediaInfo);
-
-        // Stop progress display after operations complete
-        await _progressManager.StopAsync();
 
         if (!mediaProcessSuccess)
         {

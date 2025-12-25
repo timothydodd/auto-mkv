@@ -575,9 +575,9 @@ public class ConsoleInteractionService
         return (season, episode);
     }
 
-    public (double? minSize, double? maxSize) PromptForEpisodeSizeRange(string seriesTitle)
+    public (double? minSize, double? maxSize) PromptForEpisodeSizeRange(string seriesTitle, List<AkTitle>? tracks = null)
     {
-        return _seriesConfigurationService.PromptForEpisodeSizeRange(seriesTitle);
+        return _seriesConfigurationService.PromptForEpisodeSizeRange(seriesTitle, tracks);
     }
 
     public (int? minChapters, int? maxChapters) PromptForEpisodeChapterRange(string seriesTitle)

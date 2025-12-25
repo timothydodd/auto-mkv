@@ -21,8 +21,9 @@ public interface ISeriesConfigurationService
     /// Prompts user for episode size filtering range for a series
     /// </summary>
     /// <param name="seriesTitle">The title of the TV series</param>
+    /// <param name="tracks">Optional list of tracks to display for size reference</param>
     /// <returns>Tuple containing min and max episode sizes in GB, or null for defaults</returns>
-    (double? minSize, double? maxSize) PromptForEpisodeSizeRange(string seriesTitle);
+    (double? minSize, double? maxSize) PromptForEpisodeSizeRange(string seriesTitle, List<AkTitle>? tracks = null);
 
     /// <summary>
     /// Prompts user for episode chapter filtering range for a series
