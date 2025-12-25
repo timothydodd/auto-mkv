@@ -33,6 +33,7 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
     private readonly IEnhancedOmdbService _enhancedOmdbService;
     private readonly IConsoleOutputService _consoleOutput;
     private readonly IBatchRenameService _batchRenameService;
+    private readonly IProgressManager _progressManager;
 
     public MakeMkAuto(
         RipSettings ripSettings,
@@ -49,7 +50,8 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         ConsoleInteractionService consoleInteraction,
         IEnhancedOmdbService enhancedOmdbService,
         IConsoleOutputService consoleOutput,
-        IBatchRenameService batchRenameService)
+        IBatchRenameService batchRenameService,
+        IProgressManager progressManager)
     {
         _watcher = watcher ?? throw new ArgumentNullException(nameof(watcher));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -67,6 +69,7 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         _enhancedOmdbService = enhancedOmdbService ?? throw new ArgumentNullException(nameof(enhancedOmdbService));
         _consoleOutput = consoleOutput ?? throw new ArgumentNullException(nameof(consoleOutput));
         _batchRenameService = batchRenameService ?? throw new ArgumentNullException(nameof(batchRenameService));
+        _progressManager = progressManager ?? throw new ArgumentNullException(nameof(progressManager));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -733,6 +736,9 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         // Determine output path for ripping (temporary)
         string tempOutputPath = GetOutputPath(drive);
 
+        // Start progress display for ripping and file operations
+        await _progressManager.StartAsync();
+
         // Rip the titles to temporary location
         _logger.LogInformation($"Ripping {titlesToRip.Count} titles from disc: {drive.CDName}");
         await _makeMkvService.RipTitlesAsync(drive, titlesToRip, tempOutputPath);
@@ -743,6 +749,9 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
 
         // Pass the pre-identified media info to avoid duplicate lookups
         mediaProcessSuccess = await _mediaService.ProcessRippedMediaAsync(tempOutputPath, drive.CDName, titlesToRip, mediaInfo);
+
+        // Stop progress display after operations complete
+        await _progressManager.StopAsync();
 
         if (!mediaProcessSuccess)
         {
@@ -777,14 +786,14 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         }
 
         // Step 2: Determine media type and get user choice if needed
-        MediaType mediaType;
+        MediaTypePrediction mediaType;
         if (mediaData.Type?.Equals("movie", StringComparison.OrdinalIgnoreCase) == true)
         {
-            mediaType = MediaType.Movie;
+            mediaType = MediaTypePrediction.Movie;
         }
         else if (mediaData.Type?.Equals("series", StringComparison.OrdinalIgnoreCase) == true)
         {
-            mediaType = MediaType.TvSeries;
+            mediaType = MediaTypePrediction.TvSeries;
         }
         else
         {
@@ -796,7 +805,7 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         var availableTitles = drive.Titles.Values.ToList();
         List<AkTitle> titlesToRip;
 
-        if (mediaType == MediaType.Movie)
+        if (mediaType == MediaTypePrediction.Movie)
         {
             // For movies, suggest the largest track but let user choose
             var largestTitle = availableTitles.OrderByDescending(t => t.SizeInBytes).FirstOrDefault();
@@ -816,14 +825,14 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         }
 
         // Step 4: Get episode mapping for TV series, or movie mapping for multi-movie discs
-        Dictionary<AkTitle, EpisodeInfo>? episodeMapping = null;
+        Dictionary<AkTitle, EpisodeMapping>? episodeMapping = null;
         Dictionary<AkTitle, MovieInfo>? movieMapping = null;
 
-        if (mediaType == MediaType.TvSeries)
+        if (mediaType == MediaTypePrediction.TvSeries)
         {
             episodeMapping = _manualModeService.MapTracksToEpisodes(titlesToRip, mediaData.Title ?? "Unknown Series");
         }
-        else if (mediaType == MediaType.Movie && titlesToRip.Count > 1)
+        else if (mediaType == MediaTypePrediction.Movie && titlesToRip.Count > 1)
         {
             // Multi-movie disc: each track is a different movie
             AnsiConsole.WriteLine();
@@ -851,6 +860,9 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         // Step 5: Determine output path for ripping
         string tempOutputPath = GetOutputPath(drive);
 
+        // Start progress display for ripping and file operations
+        await _progressManager.StartAsync();
+
         // Step 6: Rip the selected titles
         _logger.LogInformation($"MANUAL MODE - Ripping {titlesToRip.Count} selected titles from disc: {drive.CDName}");
         await _makeMkvService.RipTitlesAsync(drive, titlesToRip, tempOutputPath);
@@ -859,7 +871,7 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         _logger.LogInformation($"MANUAL MODE - Processing and renaming ripped media from disc: {drive.CDName}");
         bool success;
 
-        if (mediaType == MediaType.Movie)
+        if (mediaType == MediaTypePrediction.Movie)
         {
             if (movieMapping != null && movieMapping.Any())
             {
@@ -890,6 +902,9 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
             };
             success = await ProcessManualTvSeriesAsync(tempOutputPath, drive.CDName, titlesToRip, seriesInfo, episodeMapping!);
         }
+
+        // Stop progress display after operations complete
+        await _progressManager.StopAsync();
 
         if (!success)
         {
@@ -957,7 +972,7 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
         return success;
     }
 
-    private async Task<bool> ProcessManualTvSeriesAsync(string outputPath, string discName, List<AkTitle> rippedTracks, SeriesInfo seriesInfo, Dictionary<AkTitle, EpisodeInfo> episodeMapping)
+    private async Task<bool> ProcessManualTvSeriesAsync(string outputPath, string discName, List<AkTitle> rippedTracks, SeriesInfo seriesInfo, Dictionary<AkTitle, EpisodeMapping> episodeMapping)
     {
         _logger.LogInformation($"MANUAL MODE - Processing {episodeMapping.Count} TV series episodes");
 

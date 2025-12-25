@@ -238,6 +238,15 @@ public enum MediaTypePrediction
     TvSeries = 2
 }
 
+/// <summary>
+/// Simple season/episode mapping for track-to-episode associations
+/// </summary>
+public class EpisodeMapping
+{
+    public int Season { get; set; }
+    public int Episode { get; set; }
+}
+
 public enum RipConfirmationResult
 {
     Proceed = 0,        // User wants to proceed with ripping

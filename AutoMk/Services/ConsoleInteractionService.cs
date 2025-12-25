@@ -75,13 +75,13 @@ public class ConsoleInteractionService
     private async Task<OptimizedSearchResult?> PerformInteractiveSearchAsync()
     {
         // First ask for media type
-        var typeResult = _promptService.SelectPrompt<MediaType>(new SelectPromptOptions
+        var typeResult = _promptService.SelectPrompt<MediaTypePrediction>(new SelectPromptOptions
         {
             Question = "What type of media is this?",
             Choices = new List<PromptChoice>
             {
-                new("movie", "Movie", MediaType.Movie),
-                new("series", "TV Series", MediaType.TvSeries)
+                new("movie", "Movie", MediaTypePrediction.Movie),
+                new("series", "TV Series", MediaTypePrediction.TvSeries)
             }
         });
 
@@ -90,7 +90,7 @@ public class ConsoleInteractionService
             return null;
         }
 
-        bool isMovie = typeResult.Value == MediaType.Movie;
+        bool isMovie = typeResult.Value == MediaTypePrediction.Movie;
 
         // Get title
         var titleResult = _promptService.TextPrompt(new TextPromptOptions

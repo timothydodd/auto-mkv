@@ -30,7 +30,7 @@ public class ManualModeService
         _promptService.DisplayHeader($"MANUAL MODE - Media Identification for disc: {discName}");
 
         // First, try automatic identification
-        var searchTitle = CleanDiscNameForSearch(discName);
+        var searchTitle = DiscNameUtility.ExtractSeriesNameForSearch(discName);
         AnsiConsole.MarkupLine($"[dim]Attempting automatic identification for:[/] [white]'{Markup.Escape(searchTitle)}'[/]");
         AnsiConsole.WriteLine();
 
@@ -104,22 +104,22 @@ public class ManualModeService
         return await PerformManualSearchAsync();
     }
 
-    public MediaType PromptForMediaType()
+    public MediaTypePrediction PromptForMediaType()
     {
-        var result = _promptService.SelectPrompt<MediaType>(new SelectPromptOptions
+        var result = _promptService.SelectPrompt<MediaTypePrediction>(new SelectPromptOptions
         {
             HeaderText = "MANUAL MODE - Media Type Selection",
             Question = "What type of media is this disc?",
             Choices = new List<PromptChoice>
             {
-                new("movie", "Movie", MediaType.Movie),
-                new("series", "TV Series", MediaType.TvSeries)
+                new("movie", "Movie", MediaTypePrediction.Movie),
+                new("series", "TV Series", MediaTypePrediction.TvSeries)
             },
             AllowCancel = false,
             ClearScreenBefore = false
         });
 
-        var selectedType = result.Success ? result.Value : MediaType.Movie;
+        var selectedType = result.Success ? result.Value : MediaTypePrediction.Movie;
         _logger.LogInformation($"User selected: {selectedType}");
         return selectedType;
     }
@@ -194,14 +194,14 @@ public class ManualModeService
         return selectedTracks;
     }
 
-    public Dictionary<AkTitle, EpisodeInfo> MapTracksToEpisodes(List<AkTitle> selectedTracks, string seriesTitle)
+    public Dictionary<AkTitle, EpisodeMapping> MapTracksToEpisodes(List<AkTitle> selectedTracks, string seriesTitle)
     {
         AnsiConsole.WriteLine();
         _promptService.DisplayHeader($"MANUAL MODE - Episode Mapping for {seriesTitle}");
         AnsiConsole.MarkupLine("[dim]Map each track to season and episode information:[/]");
         AnsiConsole.WriteLine();
 
-        var trackMapping = new Dictionary<AkTitle, EpisodeInfo>();
+        var trackMapping = new Dictionary<AkTitle, EpisodeMapping>();
 
         foreach (var track in selectedTracks)
         {
@@ -234,7 +234,7 @@ public class ManualModeService
             int season = seasonResult.Success ? seasonResult.Value : 1;
             int episode = episodeResult.Success ? episodeResult.Value : 1;
 
-            trackMapping[track] = new EpisodeInfo
+            trackMapping[track] = new EpisodeMapping
             {
                 Season = season,
                 Episode = episode
@@ -530,13 +530,13 @@ public class ManualModeService
         _promptService.DisplayHeader("Manual Search");
         
         // Get media type
-        var typeResult = _promptService.SelectPrompt<MediaType>(new SelectPromptOptions
+        var typeResult = _promptService.SelectPrompt<MediaTypePrediction>(new SelectPromptOptions
         {
             Question = "What type of media are you searching for?",
             Choices = new List<PromptChoice>
             {
-                new("movie", "Movie", MediaType.Movie),
-                new("series", "TV Series", MediaType.TvSeries)
+                new("movie", "Movie", MediaTypePrediction.Movie),
+                new("series", "TV Series", MediaTypePrediction.TvSeries)
             }
         });
 
@@ -545,7 +545,7 @@ public class ManualModeService
             return null;
         }
 
-        bool isMovie = typeResult.Value == MediaType.Movie;
+        bool isMovie = typeResult.Value == MediaTypePrediction.Movie;
         
         // Get title
         var titleResult = _promptService.TextPrompt(new TextPromptOptions
@@ -625,36 +625,4 @@ public class ManualModeService
 
         return null;
     }
-
-    private string CleanDiscNameForSearch(string discName)
-    {
-        // Clean up disc name for OMDB searching by removing all disc/season/format identifiers
-        var cleaned = discName
-            .Replace("_", " ")
-            .Replace("-", " ")
-            .Trim();
-
-        // Remove various disc/format identifiers
-        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"\b(disc|disk|cd|dvd|bd|bluray|blu-ray)\b", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"\b(season|s)\s*\d+\b", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"\b[ds]\d+\b", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase); // Remove D1, D2, S8, etc.
-        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"\b(part|pt)\s*\d+\b", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-        // Remove multiple spaces and trim
-        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"\s+", " ").Trim();
-
-        return cleaned;
-    }
-}
-
-public enum MediaType
-{
-    Movie,
-    TvSeries
-}
-
-public class EpisodeInfo
-{
-    public int Season { get; set; }
-    public int Episode { get; set; }
 }

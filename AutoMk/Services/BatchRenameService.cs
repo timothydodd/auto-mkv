@@ -184,7 +184,7 @@ public class BatchRenameService : IBatchRenameService
         string outputPath,
         string discName,
         SeriesInfo seriesInfo,
-        Dictionary<AkTitle, EpisodeInfo> episodeMapping)
+        Dictionary<AkTitle, EpisodeMapping> episodeMapping)
     {
         var pendingRenames = new List<PendingRename>();
         _logger.LogInformation($"Collecting renames for {episodeMapping.Count} manually mapped TV series tracks");

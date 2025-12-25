@@ -83,7 +83,7 @@ public class MediaIdentificationService : IMediaIdentificationService
                     _logger.LogWarning($"Could not identify media type for disc: {discName}");
 
                     // Try interactive search
-                    var searchTitle = ParseDiscName(discName).SeriesName ?? ExtractSeriesNameForSearch(discName);
+                    var searchTitle = ParseDiscName(discName).SeriesName ?? DiscNameUtility.ExtractSeriesNameForSearch(discName);
                     var searchResult = await _mediaSelectionService.InteractiveMediaSearchAsync(searchTitle, discName);
 
                     if (searchResult == null)
@@ -143,7 +143,7 @@ public class MediaIdentificationService : IMediaIdentificationService
 
             // Parse disc name and search
             var parsedInfo = ParseDiscName(discName);
-            var searchTitle = !string.IsNullOrEmpty(parsedInfo.SeriesName) ? parsedInfo.SeriesName : ExtractSeriesNameForSearch(discName);
+            var searchTitle = !string.IsNullOrEmpty(parsedInfo.SeriesName) ? parsedInfo.SeriesName : DiscNameUtility.ExtractSeriesNameForSearch(discName);
 
             _logger.LogInformation($"Searching for media: '{searchTitle}' (from disc: '{discName}')");
 
@@ -196,7 +196,7 @@ public class MediaIdentificationService : IMediaIdentificationService
 
         // First try to parse as TV series to extract clean series name
         var parsedInfo = ParseDiscName(discName);
-        var searchTitle = !string.IsNullOrEmpty(parsedInfo.SeriesName) ? parsedInfo.SeriesName : ExtractSeriesNameForSearch(discName);
+        var searchTitle = !string.IsNullOrEmpty(parsedInfo.SeriesName) ? parsedInfo.SeriesName : DiscNameUtility.ExtractSeriesNameForSearch(discName);
 
         _logger.LogInformation($"Searching for media: '{searchTitle}' (from disc: '{discName}')");
 
@@ -742,7 +742,7 @@ public class MediaIdentificationService : IMediaIdentificationService
         _logger.LogWarning($"Could not identify media type for {discName}, attempting search");
 
         // Try searching for movies with different strategies
-        var searchResults = await _omdbClient.SearchMovie(CleanDiscName(discName), null);
+        var searchResults = await _omdbClient.SearchMovie(DiscNameUtility.CleanDiscName(discName), null);
         if (searchResults?.Any() == true)
         {
             var bestMatch = searchResults.First();
@@ -759,7 +759,7 @@ public class MediaIdentificationService : IMediaIdentificationService
 
         // If automatic search failed, try interactive search
         _logger.LogInformation("Automatic search failed, initiating interactive search");
-        var searchTitle = CleanDiscName(discName);
+        var searchTitle = DiscNameUtility.CleanDiscName(discName);
         var mediaInfo = await _mediaSelectionService.InteractiveMediaSearchAsync(searchTitle, discName);
 
         if (mediaInfo == null)
@@ -798,58 +798,12 @@ public class MediaIdentificationService : IMediaIdentificationService
         }
     }
 
-
-    private string CleanDiscName(string discName)
-    {
-        // Remove common disc identifiers and clean up
-        var cleaned = discName
-            .Replace("_", " ")
-            .Replace("-", " ")
-            .Trim();
-
-        // Remove disc/season indicators but preserve the info for parsing
-        // Don't remove these here since we need them for parsing
-
-        // Remove multiple spaces
-        cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
-
-        return cleaned;
-    }
-
-    private string ExtractSeriesNameForSearch(string discName)
-    {
-        // Clean up disc name for OMDB searching by removing all disc/season/format identifiers
-        var cleaned = discName
-            .Replace("_", " ")
-            .Replace("-", " ")
-            .Trim();
-
-        // Remove various disc/format identifiers
-        cleaned = Regex.Replace(cleaned, @"\b(disc|disk|cd|dvd|bd|bluray|blu-ray)\b", "", RegexOptions.IgnoreCase);
-        cleaned = Regex.Replace(cleaned, @"\b(season|s)\s*\d+\b", "", RegexOptions.IgnoreCase);
-        cleaned = Regex.Replace(cleaned, @"\b[ds]\d+\b", "", RegexOptions.IgnoreCase); // Remove D1, D2, S8, etc.
-        cleaned = Regex.Replace(cleaned, @"\b(part|pt)\s*\d+\b", "", RegexOptions.IgnoreCase);
-
-        // Remove multiple spaces and trim
-        cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
-
-        return cleaned;
-    }
-
     private ParsedDiscInfo ParseDiscName(string discName)
     {
         var result = new ParsedDiscInfo();
 
-        // Pattern to match "Frasier_S8_D1_BD" or "Series_Name_S8_D1" etc.
-        var patterns = new[]
-        {
-            @"^(.+?)_[Ss](\d+)_[Dd](\d+)", // Frasier_S8_D1_BD
-            @"^(.+?)[_\s][Ss](\d+)[_\s][Dd](\d+)", // Frasier S8 D1 or Frasier_S8_D1
-            @"(.+?)\s*[Ss](\d+)[^0-9]*[Dd](\d+)", // Frasier S8 D1 (original pattern)
-            @"(.+?)\s*Season\s*(\d+).*Disc\s*(\d+)" // Frasier Season 8 Disc 1
-        };
-
-        foreach (var pattern in patterns)
+        // Try to parse using the utility's patterns
+        foreach (var pattern in DiscNameUtility.DiscNamePatterns)
         {
             var match = Regex.Match(discName, pattern, RegexOptions.IgnoreCase);
             if (match.Success)
@@ -864,14 +818,14 @@ public class MediaIdentificationService : IMediaIdentificationService
         }
 
         // If no pattern matches, try to extract series name anyway
-        var fallbackMatch = Regex.Match(discName, @"^(.+?)(?:[_\s][Ss]?\d+|[_\s]Season)", RegexOptions.IgnoreCase);
+        var fallbackMatch = Regex.Match(discName, DiscNameUtility.FallbackSeriesNamePattern, RegexOptions.IgnoreCase);
         if (fallbackMatch.Success)
         {
             result.SeriesName = fallbackMatch.Groups[1].Value.Replace("_", " ").Trim();
         }
         else
         {
-            result.SeriesName = ExtractSeriesNameForSearch(discName);
+            result.SeriesName = DiscNameUtility.ExtractSeriesNameForSearch(discName);
         }
 
         // Use defaults for season/disc if not parsed
@@ -898,12 +852,12 @@ public class MediaIdentificationService : IMediaIdentificationService
     private bool HasSimilarDiscName(SeriesState seriesState, string discName)
     {
         // Extract base name for comparison
-        var baseName = ExtractSeriesNameForSearch(discName);
+        var baseName = DiscNameUtility.ExtractSeriesNameForSearch(discName);
 
         // Check if any processed disc has a similar base name
         return seriesState.ProcessedDiscs.Any(d =>
         {
-            var existingBaseName = ExtractSeriesNameForSearch(d.DiscName);
+            var existingBaseName = DiscNameUtility.ExtractSeriesNameForSearch(d.DiscName);
             return existingBaseName.Equals(baseName, StringComparison.OrdinalIgnoreCase);
         });
     }

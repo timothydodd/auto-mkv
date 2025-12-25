@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AutoMk.Interfaces;
@@ -9,32 +7,30 @@ using AutoMk.Models;
 using AutoMk.Utilities;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
-using Spectre.Console.Rendering;
 
 namespace AutoMk.Services;
 
 /// <summary>
-/// Manages concurrent progress bars and log output using Spectre.Console LiveDisplay.
-/// Progress bars are pinned at the bottom while log messages scroll above.
+/// Manages concurrent progress bars using Spectre.Console Progress API.
+/// Supports multiple simultaneous progress bars for ripping and file transfers.
 /// </summary>
 public class ProgressManager : IProgressManager
 {
     private readonly ILogger<ProgressManager> _logger;
     private readonly ProgressManagerOptions _options;
 
-    // Thread-safe collections for state
-    private readonly ConcurrentDictionary<Guid, ProgressItemState> _progressTasks = new();
-    private readonly ConcurrentQueue<ProgressLogEntry> _logEntries = new();
+    // Thread-safe mapping from our GUIDs to Spectre ProgressTasks
+    private readonly ConcurrentDictionary<Guid, ProgressTask> _progressTasks = new();
 
     // Synchronization
-    private readonly object _renderLock = new();
     private readonly SemaphoreSlim _startStopSemaphore = new(1, 1);
 
-    // LiveDisplay state
-    private CancellationTokenSource? _displayCts;
+    // Progress context state
+    private ProgressContext? _context;
+    private TaskCompletionSource? _completionSource;
+    private TaskCompletionSource<ProgressContext>? _contextReady;
     private Task? _displayTask;
     private volatile bool _isActive;
-    private string? _statusMessage;
 
     public bool IsActive => _isActive;
 
@@ -54,10 +50,37 @@ public class ProgressManager : IProgressManager
             if (_isActive)
                 return;
 
-            _displayCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _completionSource = new TaskCompletionSource();
+            _contextReady = new TaskCompletionSource<ProgressContext>();
+
+            // Start the Progress display in a background task
+            _displayTask = Task.Run(async () =>
+            {
+                await AnsiConsole.Progress()
+                    .AutoRefresh(true)
+                    .AutoClear(false)
+                    .HideCompleted(false)
+                    .Columns(
+                        new TaskDescriptionColumn(),
+                        new ProgressBarColumn(),
+                        new PercentageColumn(),
+                        new RemainingTimeColumn(),
+                        new SpinnerColumn())
+                    .StartAsync(async ctx =>
+                    {
+                        // Signal that the context is ready
+                        _contextReady!.SetResult(ctx);
+
+                        // Wait until StopAsync is called
+                        await _completionSource!.Task;
+                    });
+            }, cancellationToken);
+
+            // Wait for the context to be available
+            _context = await _contextReady.Task;
             _isActive = true;
 
-            _displayTask = RunLiveDisplayAsync(_displayCts.Token);
+            _logger.LogDebug("ProgressManager started with Spectre.Console Progress");
         }
         finally
         {
@@ -74,7 +97,9 @@ public class ProgressManager : IProgressManager
                 return;
 
             _isActive = false;
-            _displayCts?.Cancel();
+
+            // Signal the Progress context to complete
+            _completionSource?.TrySetResult();
 
             if (_displayTask != null)
             {
@@ -88,13 +113,14 @@ public class ProgressManager : IProgressManager
                 }
             }
 
-            _displayCts?.Dispose();
-            _displayCts = null;
-            _displayTask = null;
-
             // Clear state
             _progressTasks.Clear();
-            while (_logEntries.TryDequeue(out _)) { }
+            _context = null;
+            _displayTask = null;
+            _completionSource = null;
+            _contextReady = null;
+
+            _logger.LogDebug("ProgressManager stopped");
         }
         finally
         {
@@ -108,153 +134,40 @@ public class ProgressManager : IProgressManager
         _startStopSemaphore.Dispose();
     }
 
-    private async Task RunLiveDisplayAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Pauses the progress display (stops it temporarily, e.g., during user prompts).
+    /// </summary>
+    public async Task PauseAsync()
     {
-        await AnsiConsole.Live(BuildRenderable())
-            .AutoClear(false)
-            .Overflow(VerticalOverflow.Ellipsis)
-            .Cropping(VerticalOverflowCropping.Bottom)
-            .StartAsync(async ctx =>
-            {
-                while (!cancellationToken.IsCancellationRequested)
-                {
-                    lock (_renderLock)
-                    {
-                        ctx.UpdateTarget(BuildRenderable());
-                    }
-                    ctx.Refresh();
-
-                    try
-                    {
-                        await Task.Delay(_options.RefreshIntervalMs, cancellationToken);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
-
-                    // Auto-remove completed tasks
-                    if (_options.AutoRemoveCompleted)
-                    {
-                        var now = DateTime.UtcNow;
-                        var toRemove = _progressTasks.Values
-                            .Where(t => t.IsComplete &&
-                                   t.CompletedTime.HasValue &&
-                                   (now - t.CompletedTime.Value).TotalMilliseconds > _options.AutoRemoveDelayMs)
-                            .Select(t => t.Id)
-                            .ToList();
-
-                        foreach (var id in toRemove)
-                        {
-                            _progressTasks.TryRemove(id, out _);
-                        }
-                    }
-                }
-            });
+        // Simply stop the display - tasks will be re-created when resumed
+        await StopAsync();
     }
 
-    private IRenderable BuildRenderable()
+    /// <summary>
+    /// Resumes the progress display after a pause.
+    /// </summary>
+    public async Task ResumeAsync(CancellationToken cancellationToken = default)
     {
-        var components = new List<IRenderable>();
-
-        // 1. Log entries (scrolling area)
-        var logEntries = _logEntries.ToArray()
-            .TakeLast(_options.VisibleLogLines)
-            .ToList();
-
-        if (logEntries.Count > 0)
-        {
-            foreach (var entry in logEntries)
-            {
-                var prefix = entry.Level switch
-                {
-                    ProgressLogLevel.Debug => "[dim]DBG [/]",
-                    ProgressLogLevel.Info => "[blue]INFO[/]",
-                    ProgressLogLevel.Warning => "[yellow]WARN[/]",
-                    ProgressLogLevel.Error => "[red]ERR [/]",
-                    ProgressLogLevel.Success => "[green]OK  [/]",
-                    _ => "[white]... [/]"
-                };
-
-                var timestamp = _options.ShowTimestamps
-                    ? $"[dim]{entry.Timestamp:HH:mm:ss}[/] "
-                    : "";
-
-                var message = entry.IsMarkup
-                    ? entry.Message
-                    : Markup.Escape(entry.Message);
-
-                components.Add(new Markup($"{timestamp}{prefix} {message}\n"));
-            }
-        }
-
-        // 2. Status line (if set)
-        if (!string.IsNullOrEmpty(_statusMessage))
-        {
-            components.Add(new Markup($"\n[dim italic]{Markup.Escape(_statusMessage)}[/]\n"));
-        }
-
-        // 3. Progress bars (pinned at bottom)
-        var tasks = _progressTasks.Values.ToList();
-        if (tasks.Count > 0)
-        {
-            components.Add(new Rule("[cyan]Progress[/]") { Style = Style.Parse("dim") });
-
-            foreach (var task in tasks.OrderBy(t => t.StartTime))
-            {
-                components.Add(BuildProgressBar(task));
-            }
-        }
-
-        return components.Count > 0 ? new Rows(components) : new Markup("[dim]Waiting...[/]");
-    }
-
-    private IRenderable BuildProgressBar(ProgressItemState task)
-    {
-        var percentage = task.Percentage;
-        var progressWidth = 30;
-        var filledWidth = (int)(percentage / 100.0 * progressWidth);
-        var emptyWidth = progressWidth - filledWidth;
-
-        var barColor = task.IsComplete ? "green" : "cyan";
-        var progressBar = $"[{barColor}]{new string('━', filledWidth)}[/][dim]{new string('─', emptyWidth)}[/]";
-
-        var description = Markup.Escape(task.Description);
-
-        // Build additional info string
-        var additionalInfo = "";
-        if (task.TransferRateMBps.HasValue)
-        {
-            additionalInfo += $" [cyan]{task.TransferRateMBps.Value:F1} MB/s[/]";
-        }
-        if (task.TimeRemaining.HasValue && task.TimeRemaining.Value.TotalSeconds > 0)
-        {
-            var eta = task.TimeRemaining.Value.TotalHours >= 1
-                ? $"{task.TimeRemaining.Value.Hours:D2}h {task.TimeRemaining.Value.Minutes:D2}m"
-                : $"{task.TimeRemaining.Value.Minutes:D2}m {task.TimeRemaining.Value.Seconds:D2}s";
-            additionalInfo += $" [dim]ETA:[/] {eta}";
-        }
-
-        var statusIcon = task.IsComplete ? "[green]✓[/]" : "[cyan]►[/]";
-
-        return new Markup($"{statusIcon} {description}\n   [{progressBar}] [yellow]{percentage:F1}%[/]{additionalInfo}\n");
+        // Simply start the display again
+        await StartAsync(cancellationToken);
     }
 
     // === Progress Task Management ===
 
     public Guid CreateProgressTask(string description, double maxValue = 100, string? category = null)
     {
-        var task = new ProgressItemState
+        if (_context == null)
         {
-            Description = description,
-            MaxValue = maxValue,
-            Category = category
-        };
+            _logger.LogWarning("Cannot create progress task - ProgressManager not active");
+            return Guid.Empty;
+        }
 
-        _progressTasks[task.Id] = task;
-        _logger.LogDebug("Created progress task {TaskId}: {Description}", task.Id, description);
+        var id = Guid.NewGuid();
+        var task = _context.AddTask(description, autoStart: true, maxValue: maxValue);
+        _progressTasks[id] = task;
 
-        return task.Id;
+        _logger.LogDebug("Created progress task {TaskId}: {Description}", id, description);
+        return id;
     }
 
     public void UpdateProgress(Guid taskId, double value, string? description = null)
@@ -271,7 +184,7 @@ public class ProgressManager : IProgressManager
     {
         if (_progressTasks.TryGetValue(taskId, out var task))
         {
-            task.Value = Math.Min(task.Value + increment, task.MaxValue);
+            task.Increment(increment);
         }
     }
 
@@ -280,11 +193,21 @@ public class ProgressManager : IProgressManager
     {
         if (_progressTasks.TryGetValue(taskId, out var task))
         {
-            task.BytesTransferred = bytesTransferred;
-            task.TotalBytes = totalBytes;
-            task.Value = totalBytes > 0 ? (double)bytesTransferred / totalBytes * task.MaxValue : 0;
-            task.TransferRateMBps = transferRateMBps;
-            task.TimeRemaining = timeRemaining;
+            // Calculate percentage and update
+            var percentage = totalBytes > 0 ? (double)bytesTransferred / totalBytes * task.MaxValue : 0;
+            task.Value = percentage;
+
+            // Update description with transfer rate if available
+            if (transferRateMBps.HasValue)
+            {
+                var rateStr = $"{transferRateMBps.Value:F1} MB/s";
+                var currentDesc = task.Description;
+                // Append rate to description if not already present
+                if (!currentDesc.Contains("MB/s"))
+                {
+                    task.Description = $"{currentDesc} ({rateStr})";
+                }
+            }
         }
     }
 
@@ -293,46 +216,28 @@ public class ProgressManager : IProgressManager
         if (_progressTasks.TryGetValue(taskId, out var task))
         {
             task.Value = task.MaxValue;
-            task.IsComplete = true;
-            task.CompletedTime = DateTime.UtcNow;
+            task.StopTask();
         }
     }
 
     public void RemoveProgressTask(Guid taskId)
     {
-        _progressTasks.TryRemove(taskId, out _);
+        if (_progressTasks.TryRemove(taskId, out var task))
+        {
+            // Mark as complete if not already
+            if (!task.IsFinished)
+            {
+                task.StopTask();
+            }
+        }
     }
 
     // === Logging ===
+    // Note: Spectre.Console Progress doesn't have a built-in log area,
+    // so we log directly to the logger and console when not active
 
     public void Log(string message, ProgressLogLevel level = ProgressLogLevel.Info)
     {
-        AddLogEntry(message, level, isMarkup: false);
-    }
-
-    public void LogMarkup(string markup, ProgressLogLevel level = ProgressLogLevel.Info)
-    {
-        AddLogEntry(markup, level, isMarkup: true);
-    }
-
-    private void AddLogEntry(string message, ProgressLogLevel level, bool isMarkup)
-    {
-        var entry = new ProgressLogEntry
-        {
-            Message = message,
-            Level = level,
-            IsMarkup = isMarkup
-        };
-
-        _logEntries.Enqueue(entry);
-
-        // Trim excess entries
-        while (_logEntries.Count > _options.MaxLogEntries)
-        {
-            _logEntries.TryDequeue(out _);
-        }
-
-        // Also log to ILogger for persistence
         var logLevel = level switch
         {
             ProgressLogLevel.Debug => LogLevel.Debug,
@@ -344,16 +249,36 @@ public class ProgressManager : IProgressManager
         };
         _logger.Log(logLevel, "{Message}", message);
 
-        // If not active, also write directly to console
+        // If not active, write to console
         if (!_isActive)
         {
-            WriteDirectToConsole(entry);
+            WriteToConsole(message, level, isMarkup: false);
         }
     }
 
-    private static void WriteDirectToConsole(ProgressLogEntry entry)
+    public void LogMarkup(string markup, ProgressLogLevel level = ProgressLogLevel.Info)
     {
-        var prefix = entry.Level switch
+        var logLevel = level switch
+        {
+            ProgressLogLevel.Debug => LogLevel.Debug,
+            ProgressLogLevel.Info => LogLevel.Information,
+            ProgressLogLevel.Warning => LogLevel.Warning,
+            ProgressLogLevel.Error => LogLevel.Error,
+            ProgressLogLevel.Success => LogLevel.Information,
+            _ => LogLevel.Information
+        };
+        _logger.Log(logLevel, "{Message}", markup);
+
+        // If not active, write to console
+        if (!_isActive)
+        {
+            WriteToConsole(markup, level, isMarkup: true);
+        }
+    }
+
+    private static void WriteToConsole(string message, ProgressLogLevel level, bool isMarkup)
+    {
+        var prefix = level switch
         {
             ProgressLogLevel.Debug => "[dim]DBG [/]",
             ProgressLogLevel.Info => "[blue]INFO[/]",
@@ -363,19 +288,21 @@ public class ProgressManager : IProgressManager
             _ => "[white]... [/]"
         };
 
-        var message = entry.IsMarkup ? entry.Message : Markup.Escape(entry.Message);
-        AnsiConsole.MarkupLine($"{prefix} {message}");
+        var displayMessage = isMarkup ? message : Markup.Escape(message);
+        AnsiConsole.MarkupLine($"{prefix} {displayMessage}");
     }
 
     // === Status ===
 
     public void SetStatus(string status)
     {
-        _statusMessage = status;
+        // Status not directly supported in Progress API
+        // Log it instead
+        _logger.LogInformation("Status: {Status}", status);
     }
 
     public void ClearStatus()
     {
-        _statusMessage = null;
+        // No-op for Progress API
     }
 }

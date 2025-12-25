@@ -93,5 +93,5 @@ public interface IBatchRenameService
         string outputPath,
         string discName,
         SeriesInfo seriesInfo,
-        Dictionary<AkTitle, EpisodeInfo> episodeMapping);
+        Dictionary<AkTitle, EpisodeMapping> episodeMapping);
 }

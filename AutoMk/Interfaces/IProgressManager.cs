@@ -28,6 +28,16 @@ public interface IProgressManager : IAsyncDisposable
     /// </summary>
     bool IsActive { get; }
 
+    /// <summary>
+    /// Pauses the progress display (e.g., during user prompts).
+    /// </summary>
+    Task PauseAsync();
+
+    /// <summary>
+    /// Resumes the progress display after a pause.
+    /// </summary>
+    Task ResumeAsync(CancellationToken cancellationToken = default);
+
     // === Progress Task Management ===
 
     /// <summary>
