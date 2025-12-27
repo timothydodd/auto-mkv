@@ -34,9 +34,11 @@ public interface IPatternLearningService
     /// <param name="discName">The disc name (not used for pattern matching, only for logging)</param>
     /// <param name="trackPosition">Position of track in the list (0-based)</param>
     /// <param name="fallbackEpisode">Fallback episode number if no pattern found</param>
+    /// <param name="availableEpisodes">Optional list of available episodes to filter suggestions</param>
     /// <returns>Suggested episode number and confidence score</returns>
-    (int episodeNumber, double confidence) GetSuggestedEpisode(string seriesTitle, int season, 
-                                                              string discName, int trackPosition, int fallbackEpisode);
+    (int episodeNumber, double confidence) GetSuggestedEpisode(string seriesTitle, int season,
+                                                              string discName, int trackPosition, int fallbackEpisode,
+                                                              List<int>? availableEpisodes = null);
 
     /// <summary>
     /// Analyzes all user selections for a disc and creates/updates learned patterns

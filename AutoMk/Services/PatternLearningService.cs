@@ -55,11 +55,12 @@ public class PatternLearningService : IPatternLearningService
     /// <summary>
     /// Gets suggested episode number based on learned patterns for UserConfirmed sorting strategy
     /// </summary>
-    public (int episodeNumber, double confidence) GetSuggestedEpisode(string seriesTitle, int season, 
-                                                                     string discName, int trackPosition, int fallbackEpisode)
+    public (int episodeNumber, double confidence) GetSuggestedEpisode(string seriesTitle, int season,
+                                                                     string discName, int trackPosition, int fallbackEpisode,
+                                                                     List<int>? availableEpisodes = null)
     {
         var seriesState = _stateManager.GetExistingSeriesStateAsync(seriesTitle).Result;
-        
+
         // Only use patterns if TrackSortingStrategy is UserConfirmed
         if (seriesState?.TrackSortingStrategy != TrackSortingStrategy.UserConfirmed ||
             seriesState?.LearnedPatterns == null || !seriesState.LearnedPatterns.Any())
@@ -69,7 +70,7 @@ public class PatternLearningService : IPatternLearningService
 
         // Only look for patterns within the SAME series (exact title match) and season
         var matchingPatterns = seriesState.LearnedPatterns
-            .Where(p => p.Season == season && 
+            .Where(p => p.Season == season &&
                        p.TrackMappings.Any(tm => tm.TrackPosition == trackPosition))
             .OrderByDescending(p => p.ConfidenceScore)
             .ToList();
@@ -82,27 +83,35 @@ public class PatternLearningService : IPatternLearningService
 
         var bestPattern = matchingPatterns.First();
         var trackMapping = bestPattern.TrackMappings.First(tm => tm.TrackPosition == trackPosition);
-        
+
         // Calculate the starting episode for the current disc (assuming sequential episodes starting from fallbackEpisode - trackPosition)
         // We need to determine what episode this disc starts with
         var currentDiscStartEpisode = CalculateDiscStartingEpisode(fallbackEpisode, trackPosition, bestPattern.TrackMappings.Count);
-        
+
         // Convert stored absolute episode number to relative position within the original disc
         var originalDiscEpisodes = bestPattern.TrackMappings.Select(tm => tm.EpisodeNumber).OrderBy(e => e).ToList();
         var minOriginalEpisode = originalDiscEpisodes.Min();
         var relativePosition = trackMapping.EpisodeNumber - minOriginalEpisode; // 0-based relative position
-        
+
         // Apply the relative position to the current disc's starting episode
         var suggestedEpisode = currentDiscStartEpisode + relativePosition;
-        
+
+        // If availableEpisodes is provided, check if the suggestion is still available
+        // If not, the episode was already selected in this batch - return fallback with no confidence
+        if (availableEpisodes != null && !availableEpisodes.Contains(suggestedEpisode))
+        {
+            _logger.LogDebug($"Pattern suggested episode {suggestedEpisode} for {seriesTitle} S{season:D2} track {trackPosition}, but it's already selected in this batch. Using fallback {fallbackEpisode}");
+            return (fallbackEpisode, 0.0);
+        }
+
         _logger.LogInformation($"Found learned pattern for {seriesTitle} S{season:D2} track {trackPosition}: Relative position {relativePosition} → Episode {suggestedEpisode} (confidence: {trackMapping.ConfidenceScore:F2})");
-        
+
         // Show console feedback when using learned patterns
         if (_consoleOutput != null && trackMapping.ConfidenceScore >= MINIMUM_CONFIDENCE_THRESHOLD)
         {
             _consoleOutput.ShowInfo($"Using learned pattern: Track {trackPosition} → Episode {suggestedEpisode} (confidence: {trackMapping.ConfidenceScore:P0})");
         }
-        
+
         return (suggestedEpisode, trackMapping.ConfidenceScore);
     }
 

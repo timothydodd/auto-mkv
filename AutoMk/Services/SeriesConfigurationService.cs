@@ -621,7 +621,7 @@ public class SeriesConfigurationService : ISeriesConfigurationService
                          _patternLearningService.HasLearnedPatterns(seriesTitle, season, discName);
 
         var (patternSuggestion, confidence) = hasPatterns && !string.IsNullOrEmpty(discName) && trackPosition >= 0
-            ? _patternLearningService.GetSuggestedEpisode(seriesTitle, season, discName, trackPosition, suggestedEpisode)
+            ? _patternLearningService.GetSuggestedEpisode(seriesTitle, season, discName, trackPosition, suggestedEpisode, availableEpisodes)
             : (suggestedEpisode, 0.0);
 
         // Use pattern suggestion if confidence is high enough AND the episode is still available
