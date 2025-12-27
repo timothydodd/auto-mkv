@@ -617,15 +617,26 @@ public class SeriesConfigurationService : ISeriesConfigurationService
     public async Task<int?> ConfirmOrSelectEpisodeWithPatternLearningAsync(string seriesTitle, int season, int suggestedEpisode, string episodeTitle, string trackName, List<int> availableEpisodes, IEnhancedOmdbService enhancedOmdbService, List<AkTitle>? allTracks, string discName, string trackId, int trackPosition)
     {
         // Check if we have learned patterns for UserConfirmed strategy only
-        var hasPatterns = !string.IsNullOrEmpty(discName) && trackPosition >= 0 && 
+        var hasPatterns = !string.IsNullOrEmpty(discName) && trackPosition >= 0 &&
                          _patternLearningService.HasLearnedPatterns(seriesTitle, season, discName);
-        
+
         var (patternSuggestion, confidence) = hasPatterns && !string.IsNullOrEmpty(discName) && trackPosition >= 0
             ? _patternLearningService.GetSuggestedEpisode(seriesTitle, season, discName, trackPosition, suggestedEpisode)
             : (suggestedEpisode, 0.0);
 
-        // Use pattern suggestion if confidence is high enough
-        var finalSuggestion = confidence > 0.7 ? patternSuggestion : suggestedEpisode;
+        // Use pattern suggestion if confidence is high enough AND the episode is still available
+        // If the pattern suggests an episode that's already been used in this batch, fall back to the suggested episode
+        var finalSuggestion = confidence > 0.7 && availableEpisodes.Contains(patternSuggestion)
+            ? patternSuggestion
+            : suggestedEpisode;
+
+        // Ensure the final suggestion is actually available; if not, use the first available episode
+        if (!availableEpisodes.Contains(finalSuggestion) && availableEpisodes.Any())
+        {
+            _logger.LogWarning($"Suggested episode {finalSuggestion} is not available, falling back to first available: {availableEpisodes.First()}");
+            finalSuggestion = availableEpisodes.First();
+            confidence = 0.0; // Reset confidence since we're using a fallback
+        }
         
         // If user has chosen to accept all suggestions for this disc, skip confirmation
         if (_acceptAllSuggestionsForDisc)
@@ -641,7 +652,8 @@ public class SeriesConfigurationService : ISeriesConfigurationService
             
             return finalSuggestion;
         }
-        var isPatternBased = confidence > 0.7 && patternSuggestion != suggestedEpisode;
+        // isPatternBased is true only if we're actually using the pattern suggestion (not a fallback)
+        var isPatternBased = confidence > 0.7 && finalSuggestion == patternSuggestion && patternSuggestion != suggestedEpisode;
 
         _promptService.DisplayHeader("EPISODE CONFIRMATION");
         AnsiConsole.MarkupLine($"[dim]Series:[/] [white]{Markup.Escape(seriesTitle)}[/]");
