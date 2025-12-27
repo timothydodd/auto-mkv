@@ -641,19 +641,38 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         }
 
         _logger.LogInformation($"Final suggestion: {finalSuggestion}, patternSuggestion={patternSuggestion}, confidence={confidence:F2}");
-        
+
+        // If the final suggestion is different from the original suggested episode, fetch the correct title
+        var finalEpisodeTitle = episodeTitle;
+        if (finalSuggestion != suggestedEpisode)
+        {
+            try
+            {
+                var episodeInfo = await enhancedOmdbService.GetEpisodeInfoAsync(seriesTitle, season, finalSuggestion);
+                if (episodeInfo != null && !string.IsNullOrEmpty(episodeInfo.Title))
+                {
+                    finalEpisodeTitle = episodeInfo.Title;
+                    _logger.LogInformation($"Fetched title for pattern-suggested episode {finalSuggestion}: {finalEpisodeTitle}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, $"Could not fetch title for episode {finalSuggestion}, using original title");
+            }
+        }
+
         // If user has chosen to accept all suggestions for this disc, skip confirmation
         if (_acceptAllSuggestionsForDisc)
         {
             _logger.LogInformation($"Auto-accepting episode {finalSuggestion} for track {trackName} (disc-wide auto-accept enabled)");
-            
+
             // Record the selection for pattern learning (only for UserConfirmed strategy)
             if (!string.IsNullOrEmpty(discName) && !string.IsNullOrEmpty(trackId) && trackPosition >= 0)
             {
-                _patternLearningService.RecordSelection(seriesTitle, season, discName, trackPosition, 
+                _patternLearningService.RecordSelection(seriesTitle, season, discName, trackPosition,
                                                        trackId, trackName, finalSuggestion, finalSuggestion, true);
             }
-            
+
             return finalSuggestion;
         }
         // isPatternBased is true only if we're actually using the pattern suggestion (not a fallback)
@@ -674,9 +693,9 @@ public class SeriesConfigurationService : ISeriesConfigurationService
             AnsiConsole.MarkupLine($"[cyan]Suggested Episode:[/] [white]{finalSuggestion}[/]");
         }
 
-        if (!string.IsNullOrEmpty(episodeTitle))
+        if (!string.IsNullOrEmpty(finalEpisodeTitle))
         {
-            AnsiConsole.MarkupLine($"[dim]Episode Title:[/] [white]{Markup.Escape(episodeTitle)}[/]");
+            AnsiConsole.MarkupLine($"[dim]Episode Title:[/] [white]{Markup.Escape(finalEpisodeTitle)}[/]");
         }
 
         if (hasPatterns && !isPatternBased && confidence <= 0.7)

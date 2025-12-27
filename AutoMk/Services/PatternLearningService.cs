@@ -84,20 +84,19 @@ public class PatternLearningService : IPatternLearningService
         var bestPattern = matchingPatterns.First();
         var trackMapping = bestPattern.TrackMappings.First(tm => tm.TrackPosition == trackPosition);
 
-        // Calculate the starting episode for the current disc (assuming sequential episodes starting from fallbackEpisode - trackPosition)
-        // We need to determine what episode this disc starts with
-        var currentDiscStartEpisode = CalculateDiscStartingEpisode(fallbackEpisode, trackPosition, bestPattern.TrackMappings.Count);
+        // Calculate the starting episode for the current disc based on where we are in the sequence
+        // fallbackEpisode is what this track would be if sequential, so disc start = fallbackEpisode - trackPosition
+        var currentDiscStartEpisode = fallbackEpisode - trackPosition;
 
-        // Convert stored absolute episode number to relative position within the original disc
+        // Get the relative position this track was mapped to in the learned pattern
         var originalDiscEpisodes = bestPattern.TrackMappings.Select(tm => tm.EpisodeNumber).OrderBy(e => e).ToList();
         var minOriginalEpisode = originalDiscEpisodes.Min();
-        var relativePosition = trackMapping.EpisodeNumber - minOriginalEpisode; // 0-based relative position
+        var relativePosition = trackMapping.EpisodeNumber - minOriginalEpisode;
 
         // Apply the relative position to the current disc's starting episode
         var suggestedEpisode = currentDiscStartEpisode + relativePosition;
 
         // If availableEpisodes is provided, check if the suggestion is still available
-        // If not, the episode was already selected in this batch - return fallback with no confidence
         if (availableEpisodes != null && !availableEpisodes.Contains(suggestedEpisode))
         {
             _logger.LogDebug($"Pattern suggested episode {suggestedEpisode} for {seriesTitle} S{season:D2} track {trackPosition}, but it's already selected in this batch. Using fallback {fallbackEpisode}");
@@ -113,16 +112,6 @@ public class PatternLearningService : IPatternLearningService
         }
 
         return (suggestedEpisode, trackMapping.ConfidenceScore);
-    }
-
-    /// <summary>
-    /// Calculates the starting episode number for the current disc based on the fallback episode and track position
-    /// </summary>
-    private int CalculateDiscStartingEpisode(int fallbackEpisode, int trackPosition, int totalTracksInPattern)
-    {
-        // The fallbackEpisode represents what episode this track would be if episodes were sequential
-        // So the starting episode for this disc would be: fallbackEpisode - trackPosition
-        return fallbackEpisode - trackPosition;
     }
 
     /// <summary>
