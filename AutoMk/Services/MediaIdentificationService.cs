@@ -1068,8 +1068,10 @@ public class MediaIdentificationService : IMediaIdentificationService
         _logger.LogInformation($"Available episodes for this batch of {tracks.Count} tracks: {startingEpisode} to {maxEpisodeForThisBatch}");
 
         // Confirm each track with the user
+        var trackIndex = 0;
         foreach (var track in tracks)
         {
+            _logger.LogInformation($"Processing track {trackIndex}: availableEpisodes = [{string.Join(", ", availableEpisodes)}]");
             var suggestedEpisode = seriesState.NextEpisode + reorderedTracks.Count;
 
             // Ensure the suggested episode is available
@@ -1142,6 +1144,7 @@ public class MediaIdentificationService : IMediaIdentificationService
                 // Add track to skipped list for _trash folder processing
                 skippedTracks.Add(track);
                 _logger.LogInformation($"Track {track.Name} marked for skipping - will be moved to _trash folder");
+                trackIndex++;
                 continue; // Skip to next track
             }
             
@@ -1160,14 +1163,17 @@ public class MediaIdentificationService : IMediaIdentificationService
             userSelections.Add(selection);
 
             // Remove the selected episode from available episodes
+            _logger.LogInformation($"Removing episode {selectedEpisode.Value} from availableEpisodes. Before: [{string.Join(", ", availableEpisodes)}]");
             availableEpisodes.Remove(selectedEpisode.Value);
+            _logger.LogInformation($"After removal: [{string.Join(", ", availableEpisodes)}]");
 
             // Store the track with its confirmed episode assignment
-            var trackIndex = reorderedTracks.Count;
+            var reorderedTrackIndex = reorderedTracks.Count;
             reorderedTracks.Add(track);
-            trackToEpisodeMap[trackIndex] = selectedEpisode.Value;
+            trackToEpisodeMap[reorderedTrackIndex] = selectedEpisode.Value;
 
             _logger.LogInformation($"Track {track.Name} confirmed as episode {selectedEpisode.Value}");
+            trackIndex++;
         }
 
         _logger.LogInformation($"User confirmation complete. Confirmed {reorderedTracks.Count} tracks, skipped {skippedTracks.Count} tracks, with {userSelections.Count} selections for pattern learning");

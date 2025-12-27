@@ -616,6 +616,8 @@ public class SeriesConfigurationService : ISeriesConfigurationService
     /// </summary>
     public async Task<int?> ConfirmOrSelectEpisodeWithPatternLearningAsync(string seriesTitle, int season, int suggestedEpisode, string episodeTitle, string trackName, List<int> availableEpisodes, IEnhancedOmdbService enhancedOmdbService, List<AkTitle>? allTracks, string discName, string trackId, int trackPosition)
     {
+        _logger.LogInformation($"ConfirmOrSelectEpisode: trackPosition={trackPosition}, suggestedEpisode={suggestedEpisode}, availableEpisodes=[{string.Join(", ", availableEpisodes)}]");
+
         // Check if we have learned patterns for UserConfirmed strategy only
         var hasPatterns = !string.IsNullOrEmpty(discName) && trackPosition >= 0 &&
                          _patternLearningService.HasLearnedPatterns(seriesTitle, season, discName);
@@ -637,6 +639,8 @@ public class SeriesConfigurationService : ISeriesConfigurationService
             finalSuggestion = availableEpisodes.First();
             confidence = 0.0; // Reset confidence since we're using a fallback
         }
+
+        _logger.LogInformation($"Final suggestion: {finalSuggestion}, patternSuggestion={patternSuggestion}, confidence={confidence:F2}");
         
         // If user has chosen to accept all suggestions for this disc, skip confirmation
         if (_acceptAllSuggestionsForDisc)
