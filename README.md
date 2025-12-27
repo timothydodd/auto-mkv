@@ -1,7 +1,7 @@
 
 # AutoMk
 
-A .NET 9.0 console application that provides automated MakeMKV disc ripping with intelligent media identification and file organization.
+A .NET 10.0 console application that provides automated MakeMKV disc ripping with intelligent media identification and file organization.
 
 ## Features
 
@@ -17,12 +17,12 @@ A .NET 9.0 console application that provides automated MakeMKV disc ripping with
 
 ## Prerequisites
 
-- .NET 9.0 SDK
+- .NET 10.0 SDK
 - OMDB API key (free tier available at [omdbapi.com](http://www.omdbapi.com/))
 - MakeMKV (licensed version for Blu-ray support) - *Required for disc ripping modes only*
 - CD/DVD/Blu-ray drive - *Required for disc ripping modes only*
 
-**Note:** Discover and Name mode only requires .NET 9.0 and an OMDB API key - no MakeMKV or optical drive needed.
+**Note:** Discover and Name mode only requires .NET 10.0 and an OMDB API key - no MakeMKV or optical drive needed.
 
 ## Installation
 
@@ -109,7 +109,10 @@ Provides full control over the ripping process:
 #### 3. Configure TV Series Profiles
 Pre-configure settings for TV series before ripping:
 - Set episode size ranges (min/max GB)
-- Choose track sorting strategy (MakeMKV order or MPLS filename)
+- Choose track sorting strategy:
+  - **ByTrackOrder**: Use MakeMKV's track numbering (Title #0, #1, #2...)
+  - **ByMplsFileName**: Sort by source MPLS file names (00042.mpls, 00043.mpls...)
+  - **UserConfirmed**: Sort by track order but confirm each episode with user (enables pattern learning)
 - Configure double episode handling (auto-detect, always single, always double)
 - Set starting season/episode numbers
 - Enable auto-increment for multi-disc series
@@ -156,15 +159,18 @@ AutoMk follows clean architecture principles with dependency injection:
 
 ### Key Services
 
+- `MakeMkAuto`: Main background service orchestrating the entire workflow
 - `MakeMkvService`: Orchestrates MakeMKV operations
 - `MediaIdentificationService`: OMDB API integration and media processing
 - `MediaNamingService`: Generates Plex-compatible names
 - `MediaStateManager`: Maintains state across disc sessions
-- `DriveWatcher`: Monitors optical drives for media
+- `DriveWatcher`: Monitors optical drives for media (Windows/WSL variants)
 - `DiscoverAndNameService`: Organizes existing MKV files without ripping
 - `MediaSelectionService`: Interactive media search and selection
 - `SeriesConfigurationService`: TV series profile management
 - `PatternLearningService`: Machine learning for user selection patterns
+- `BatchRenameService`: Centralized file renaming operations
+- `ProgressManager`: Progress tracking and display management
 
 ## Development
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AutoMk is a .NET 9.0 console application that provides automated MakeMKV disc ripping with intelligent media identification and file organization. It continuously monitors CD/DVD/Blu-ray drives, automatically rips content using MakeMKV, identifies movies and TV series via OMDB API, and organizes files according to Plex naming conventions.
+AutoMk is a .NET 10.0 console application that provides automated MakeMKV disc ripping with intelligent media identification and file organization. It continuously monitors CD/DVD/Blu-ray drives, automatically rips content using MakeMKV, identifies movies and TV series via OMDB API, and organizes files according to Plex naming conventions.
 
 ## Build and Run Commands
 
@@ -84,7 +84,7 @@ The application uses .NET Generic Host with dependency injection and interface-b
 - **MakeMkAuto**: Main background service orchestrating the entire workflow
 - **DriveWatcher**: Hardware monitoring (Windows/WSL variants)
 
-**MakeMKV Services (Refactored):**
+**MakeMKV Services:**
 - **IMakeMkvService**: Main interface for MakeMKV operations (implemented by MakeMkvService)
 - **MakeMkvProcessManager**: Handles process creation and execution
 - **MakeMkvOutputParser**: Parses MakeMKV command output
@@ -92,7 +92,7 @@ The application uses .NET Generic Host with dependency injection and interface-b
 
 **Media Processing Services:**
 - **IMediaIdentificationService**: OMDB API integration for content identification
-- **IMediaNamingService**: Plex-compatible naming generation  
+- **IMediaNamingService**: Plex-compatible naming generation
 - **IMediaStateManager**: Cross-disc state persistence for TV series
 - **IMediaMoverService**: Post-processing file organization
 - **IOmdbClient**: OMDB API client interface
@@ -101,72 +101,101 @@ The application uses .NET Generic Host with dependency injection and interface-b
 - **IPatternLearningService**: Machine learning for user selection patterns
 - **IMediaSelectionService**: Interactive media search and selection UI
 - **ISeriesConfigurationService**: TV series configuration management UI
+- **IBatchRenameService**: Centralized file renaming operations
+
+**Console & Progress Services:**
 - **IConsolePromptService**: Comprehensive console UI framework
+- **IConsoleOutputService**: Structured console output with styling
+- **IProgressManager**: Progress tracking and display management
 
 ### Project Structure
 ```
 AutoMk/
-├── Models/               # Data classes and DTOs
+├── MakeMkAuto.cs             # Main background service
+├── DriveWatcher.cs           # Windows drive monitoring
+├── DriveWatcher_wsl.cs       # WSL drive monitoring
+├── PostMKVJob.cs             # Post-rip job processing
+├── Program.cs                # Application entry point
+├── Models/                   # Data classes and DTOs
 │   ├── ConfigurationModels.cs
+│   ├── ConfirmationInfo.cs
+│   ├── ConsolePromptModels.cs
+│   ├── EpisodeDetails.cs
 │   ├── MakeMkvModels.cs
-│   ├── MediaModels.cs      # Includes SeriesProfile, RipConfirmation
+│   ├── MediaDetails.cs
+│   ├── MediaIdentity.cs
+│   ├── MediaModels.cs          # SeriesProfile, SeriesState, TrackSortingStrategy
+│   ├── MovieInfo.cs
 │   ├── OmdbModels.cs
-│   ├── ConsolePromptModels.cs     # NEW - Console UI prompt definitions
-│   └── ProcessingResult.cs        # NEW - Consistent error handling wrapper
-├── Interfaces/           # Service interfaces
-│   ├── IConsolePromptService.cs        # Console UI framework
-│   ├── IDiscoverAndNameService.cs      # Discover and Name mode interface
-│   ├── IEnhancedOmdbService.cs         # Cached OMDB operations
-│   ├── IFileDiscoveryService.cs        # File discovery and verification
+│   ├── PendingRenameModels.cs
+│   ├── ProcessingResult.cs     # Consistent error handling wrapper
+│   ├── ProgressModels.cs
+│   ├── SearchResult.cs
+│   └── SeriesInfo.cs
+├── Interfaces/               # Service interfaces
+│   ├── IBatchRenameService.cs
+│   ├── IChapterConfigurable.cs
+│   ├── IConsoleOutputService.cs
+│   ├── IConsolePromptService.cs
+│   ├── IDiscoverAndNameService.cs
+│   ├── IEnhancedOmdbService.cs
+│   ├── IFileDiscoveryService.cs
 │   ├── IFileTransferClient.cs
 │   ├── IMakeMkvService.cs
 │   ├── IMediaIdentificationService.cs
 │   ├── IMediaMoverService.cs
 │   ├── IMediaNamingService.cs
-│   ├── IMediaSelectionService.cs       # Interactive media selection
+│   ├── IMediaSelectionService.cs
 │   ├── IMediaStateManager.cs
-│   ├── IMediaTypePredictionService.cs
 │   ├── IOmdbClient.cs
-│   ├── IPatternLearningService.cs      # Machine learning for user patterns
-│   ├── ISeasonInfoCacheService.cs      # Season caching
-│   ├── ISeriesConfigurationService.cs  # TV series configuration UI
-│   └── ISeriesProfileService.cs
-├── Services/            # Service implementations
-│   ├── ConsoleInteractionService.cs    # Enhanced with new prompts
-│   ├── ConsolePromptService.cs         # Console UI framework implementation
-│   ├── DiscoverAndNameService.cs       # Discover and Name mode implementation
-│   ├── EnhancedOmdbService.cs          # Cached OMDB operations
-│   ├── FileDiscoveryService.cs         # File discovery and verification
+│   ├── IPatternLearningService.cs
+│   ├── IProgressManager.cs
+│   ├── ISeasonInfoCacheService.cs
+│   ├── ISeriesConfigurationService.cs
+│   ├── ISeriesProfileService.cs
+│   └── ISizeConfigurable.cs
+├── Services/                 # Service implementations
+│   ├── BatchRenameService.cs
+│   ├── ConsoleInteractionService.cs
+│   ├── ConsoleOutputService.cs
+│   ├── ConsolePromptService.cs
+│   ├── DiscoverAndNameService.cs
+│   ├── EnhancedOmdbService.cs
+│   ├── FileDiscoveryService.cs
 │   ├── FileTransferClient.cs
-│   ├── MakeMkvService.cs
-│   ├── MakeMkvProcessManager.cs
 │   ├── MakeMkvOutputParser.cs
+│   ├── MakeMkvProcessManager.cs
 │   ├── MakeMkvProgressReporter.cs
-│   ├── ManualModeService.cs            # Manual mode implementation
-│   ├── MediaIdentificationService.cs   # Enhanced to use caching
+│   ├── MakeMkvService.cs
+│   ├── ManualModeService.cs
+│   ├── MediaIdentificationService.cs
 │   ├── MediaMoverService.cs
 │   ├── MediaNamingService.cs
-│   ├── MediaSelectionService.cs        # Interactive media selection
+│   ├── MediaSelectionService.cs
 │   ├── MediaStateManager.cs
-│   ├── MediaTypePredictionService.cs
 │   ├── OmdbClient.cs
-│   ├── PatternLearningService.cs       # Machine learning for user patterns
-│   ├── SeasonInfoCacheService.cs       # Season data caching
-│   ├── SeriesConfigurationService.cs   # TV series configuration UI
+│   ├── PatternLearningService.cs
+│   ├── ProgressManager.cs
+│   ├── SeasonInfoCacheService.cs
+│   ├── SeriesConfigurationService.cs
 │   └── SeriesProfileService.cs
-├── Cache/               # OMDB season data cache (runtime) - NEW
-│   └── season_info_cache.json
-├── Profiles/            # Persisted series configurations (runtime)
-│   └── series_profiles.json
-└── [Other files...]
+├── Utilities/                # Helper classes
+│   ├── DiscNameUtility.cs      # Disc name parsing
+│   ├── FileSystemHelper.cs     # File system operations
+│   ├── ModelConverter.cs       # Model transformations
+│   └── ValidationHelper.cs     # Input validation
+├── Extensions/               # Extension methods
+│   └── OmdbResponseExtensions.cs
+└── [Runtime directories: Cache/, Profiles/, Logs/, state/]
 ```
 
 ### Configuration Structure
 All settings are defined in strongly-typed models located in `Models/ConfigurationModels.cs`:
-- **RipSettings**: MakeMKV configuration, output paths, size filtering (MinSizeGB/MaxSizeGB), MinTrackLength filtering, media processing options
-- **OmdbSettings**: OMDB API credentials and endpoints  
-- **FileTransferSettings**: Remote file transfer configuration
+- **RipSettings**: MakeMKV configuration, output paths, size filtering (MinSizeGB/MaxSizeGB), chapter filtering (MinChapters/MaxChapters), MinTrackLength (in seconds), mode selection, media processing options
+- **OmdbSettings**: OMDB API credentials and endpoints
+- **FileTransferSettings**: Remote file transfer configuration (URL, timeouts, concurrent transfers)
 - **PostRipSettings**: Post-processing cleanup options including DeleteFilesSmallerThan setting
+- **ModeSelectionSetting**: Enum for startup mode (Ask, AlwaysManual, AlwaysAutomatic)
 - **Logging**: File and console logging configuration with rotation and size limits
 
 User secrets are used in DEBUG mode for sensitive configuration like API keys (User Secrets ID: `03359cd6-bc97-47ea-95e3-ed36c00c2be0`). All configuration classes include proper validation and null-checking.
@@ -178,7 +207,7 @@ The application has sophisticated logic for handling multi-disc TV series:
 - Handles various disc naming patterns (e.g., `Series_S8_D1_BD`)
 - Stores persistent state in `MediaStateManager` for session continuity
 
-### Pattern Learning System (NEW)
+### Pattern Learning System
 The application includes machine learning capabilities for TV series processing with the `UserConfirmed` track sorting strategy:
 
 **Core Components:**
@@ -295,7 +324,10 @@ In Manual Mode, when the user selects multiple tracks and chooses movie mode:
 #### TV Series Profile Configuration
 When a new TV series is detected in Automatic Mode, all settings are configured upfront:
 1. **Episode Size Range**: Custom min/max GB for filtering
-2. **Track Sorting**: By MakeMKV order or MPLS filename
+2. **Track Sorting Strategy**: Three options available:
+   - **ByTrackOrder**: Use MakeMKV's track numbering (Title #0, #1, #2...)
+   - **ByMplsFileName**: Sort by source MPLS file names (00042.mpls, 00043.mpls...)
+   - **UserConfirmed**: Sort by track order but confirm each episode with user (enables pattern learning)
 3. **Double Episode Handling**: Auto-detect, always single, or always double
 4. **Starting Position**: Season and episode numbers if unclear
 5. **Auto-increment Mode**: For multi-disc series handling
@@ -316,8 +348,8 @@ Users can proceed, modify settings, or skip the disc.
 - **Movies**: `Movies/{Title} ({Year})/{Title} ({Year}).mkv`
 - **TV Series**: `TV Shows/{Series}/Season {##}/{Series} - S##E## - {Episode Title}.mkv`
 
-### Media Type Prediction (NEW)
-The system analyzes disc names to predict media type:
+### Media Type Prediction
+The system analyzes disc names via `DiscNameUtility` to predict media type:
 - **TV Series Patterns**: S##D##, Season_#_Disc_#, Series names
 - **Movie Patterns**: Year (19xx/20xx), quality indicators (1080p, BluRay)
 
@@ -354,15 +386,14 @@ The refactored codebase now follows clean architecture principles:
 - **Nullable reference warnings eliminated** with proper null-checking
 - **Configuration models centralized** with validation
 
-### Enhanced User Experience Services (NEW)
-- **MediaTypePredictionService**: Analyzes disc names to predict movie vs TV series
+### Enhanced User Experience Services
+- **DiscNameUtility**: Analyzes disc names to extract series/season/disc info and predict media type
 - **SeriesProfileService**: Manages saved TV series configurations
-- **Enhanced ConsoleInteractionService**: 
-  - Consolidated series profile prompts
-  - Pre-rip confirmation summaries
-  - Improved error handling options
+- **ConsoleInteractionService**: Unified console interaction with series profile prompts, pre-rip confirmation summaries, and error handling
+- **BatchRenameService**: Centralized file renaming with batch operations and rollback support
+- **ProgressManager**: Real-time progress tracking with visual feedback
 
-### Console UI Framework (NEW)
+### Console UI Framework
 The application includes a comprehensive console UI framework for consistent user interaction:
 
 **Core Components:**
@@ -384,7 +415,7 @@ The application includes a comprehensive console UI framework for consistent use
 - **Customization**: Configurable prompt text, display options, and formatting
 - **Type Safety**: Generic prompt methods ensure type-safe results
 
-### ProcessingResult Pattern (NEW)
+### ProcessingResult Pattern
 The application uses a consistent result pattern for error handling across all operations:
 
 **Features:**
@@ -402,7 +433,7 @@ The application uses a consistent result pattern for error handling across all o
 - **Exception Handling**: Convert exceptions to structured error results
 - **Implicit Conversion**: Automatic wrapping of values into successful results
 
-### File Discovery Service (NEW)
+### File Discovery Service
 The application includes a robust file discovery system for locating ripped media files:
 
 **Core Functionality:**
@@ -428,10 +459,10 @@ The application includes a robust file discovery system for locating ripped medi
 - **Media State**: JSON file tracking TV series progress and settings
 - **Series Profiles**: Separate JSON storage for reusable series configurations
 - **Manual Identifications**: Cached OMDB results for consistent naming
-- **Season Cache**: Cached episode information to reduce OMDB API calls (NEW)
-- **Pattern Learning Data**: Stored within series state for user selection patterns (NEW)
+- **Season Cache**: Cached episode information to reduce OMDB API calls
+- **Pattern Learning Data**: Stored within series state for user selection patterns
 
-### OMDB API Optimization (NEW)
+### OMDB API Optimization
 - **Season-Level Caching**: Fetches entire seasons at once instead of individual episodes
 - **30-Day Cache Expiration**: Balances freshness with performance
 - **Intelligent Preloading**: Automatically preloads current and next season data

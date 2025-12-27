@@ -738,7 +738,7 @@ public class SeriesConfigurationService : ISeriesConfigurationService
             }
             else
             {
-                var selectedEpisode = await SelectFromAvailableEpisodesAsync(seriesTitle, season, availableEpisodes, enhancedOmdbService, trackName);
+                var selectedEpisode = await SelectFromAvailableEpisodesAsync(seriesTitle, season, availableEpisodes, enhancedOmdbService, trackName, finalSuggestion, confidence);
                 
                 // Record the selection for pattern learning (only for UserConfirmed strategy)
                 if (!string.IsNullOrEmpty(discName) && !string.IsNullOrEmpty(trackId) && trackPosition >= 0)
@@ -752,20 +752,30 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         }
     }
 
-    private async Task<int> SelectFromAvailableEpisodesAsync(string seriesTitle, int season, List<int> availableEpisodes, IEnhancedOmdbService enhancedOmdbService, string trackName)
+    private async Task<int> SelectFromAvailableEpisodesAsync(string seriesTitle, int season, List<int> availableEpisodes, IEnhancedOmdbService enhancedOmdbService, string trackName, int suggestedEpisode = 0, double suggestionConfidence = 0.0)
     {
         _promptService.DisplayHeader("Available episodes that haven't been picked");
 
+        // Sort episodes with the suggested episode first (if it's available and has confidence),
+        // then the rest in ascending order
+        var sortedEpisodes = availableEpisodes
+            .OrderByDescending(ep => ep == suggestedEpisode && suggestionConfidence > 0 ? 1 : 0)
+            .ThenBy(ep => ep)
+            .ToList();
+
         // Display all available episodes with their titles
         var episodeInfos = new Dictionary<int, string>();
-        foreach (var episodeNum in availableEpisodes.OrderBy(x => x))
+        foreach (var episodeNum in sortedEpisodes)
         {
             try
             {
                 var episodeInfo = await enhancedOmdbService.GetEpisodeInfoAsync(seriesTitle, season, episodeNum);
                 var title = episodeInfo?.Title ?? "(No info available)";
                 episodeInfos[episodeNum] = title;
-                AnsiConsole.MarkupLine($"  [dim]{episodeNum}.[/] Episode {episodeNum}: {Markup.Escape(title)}");
+
+                var isSuggested = episodeNum == suggestedEpisode && suggestionConfidence > 0;
+                var confidenceDisplay = isSuggested ? $" [cyan](Suggested - {suggestionConfidence:P0} confidence)[/]" : "";
+                AnsiConsole.MarkupLine($"  [dim]{episodeNum}.[/] Episode {episodeNum}: {Markup.Escape(title)}{confidenceDisplay}");
             }
             catch
             {
@@ -777,10 +787,14 @@ public class SeriesConfigurationService : ISeriesConfigurationService
         AnsiConsole.WriteLine();
 
         var choices = new List<PromptChoice>();
-        foreach (var episodeNum in availableEpisodes.OrderBy(x => x))
+        foreach (var episodeNum in sortedEpisodes)
         {
             var title = episodeInfos.GetValueOrDefault(episodeNum, "(Unknown)");
-            choices.Add(new(episodeNum.ToString(), $"Episode {episodeNum}: {title}", episodeNum));
+            var isSuggested = episodeNum == suggestedEpisode && suggestionConfidence > 0;
+            var label = isSuggested
+                ? $"Episode {episodeNum}: {title} (Suggested - {suggestionConfidence:P0})"
+                : $"Episode {episodeNum}: {title}";
+            choices.Add(new(episodeNum.ToString(), label, episodeNum));
         }
 
         var selectionResult = _promptService.SelectPrompt<int>(new SelectPromptOptions
@@ -791,9 +805,12 @@ public class SeriesConfigurationService : ISeriesConfigurationService
 
         if (!selectionResult.Success || selectionResult.Cancelled)
         {
-            var firstEpisode = availableEpisodes.OrderBy(x => x).First();
-            _logger.LogInformation($"User cancelled episode selection for track {trackName}, using first available episode {firstEpisode}");
-            return firstEpisode;
+            // Default to suggested episode if available, otherwise first available
+            var defaultEpisode = suggestedEpisode > 0 && availableEpisodes.Contains(suggestedEpisode)
+                ? suggestedEpisode
+                : availableEpisodes.OrderBy(x => x).First();
+            _logger.LogInformation($"User cancelled episode selection for track {trackName}, using default episode {defaultEpisode}");
+            return defaultEpisode;
         }
 
         var selectedEpisode = selectionResult.Value;
