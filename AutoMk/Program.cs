@@ -27,6 +27,21 @@ namespace AutoMk
 
             var config = Configure();
 
+            // Check if initial setup is needed and run it
+            if (StartupValidator.CheckAndRunInitialSetup(config))
+            {
+                // Reload configuration after setup
+                AnsiConsole.MarkupLine("[cyan]Reloading configuration...[/]");
+                config = Configure();
+            }
+
+            // Validate configuration before proceeding
+            var validationResult = StartupValidator.Validate(config);
+            if (!StartupValidator.DisplayResults(validationResult))
+            {
+                Environment.Exit(1);
+            }
+
             AnsiConsole.MarkupLine("[dim]..enter Ctrl+C or Ctrl+Break to exit..[/]");
 
             // But for the host, use Host.CreateDefaultBuilder
@@ -159,10 +174,31 @@ namespace AutoMk
         }
 
 
+        private static string GetExecutableDirectory()
+        {
+            // For single-file apps, AppContext.BaseDirectory points to temp extraction folder
+            // We need to find the actual executable location
+            var exePath = Environment.ProcessPath;
+            if (!string.IsNullOrEmpty(exePath))
+            {
+                var exeDir = Path.GetDirectoryName(exePath);
+                if (!string.IsNullOrEmpty(exeDir) && Directory.Exists(exeDir))
+                {
+                    return exeDir;
+                }
+            }
+
+            // Fallback to AppContext.BaseDirectory
+            return AppContext.BaseDirectory;
+        }
+
         private static IConfigurationRoot Configure()
         {
+            // Get the directory where the exe is located (not temp extraction folder)
+            var basePath = GetExecutableDirectory();
+
             var builder = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetCurrentDirectory())
+                .SetBasePath(basePath)
                 .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
                 .AddEnvironmentVariables();
 
@@ -292,6 +328,15 @@ namespace AutoMk
         {
             // Create a temporary service provider for the discover and name service
             var config = Configure();
+
+            // Validate configuration (silent re-validation since main startup already validated)
+            var validationResult = StartupValidator.Validate(config);
+            if (!validationResult.IsValid)
+            {
+                StartupValidator.DisplayResults(validationResult);
+                return;
+            }
+
             var omdbSettings = config.GetSection("OmdbSettings").Get<OmdbSettings>()
                 ?? throw new InvalidOperationException("OmdbSettings configuration is required");
             var rip = config.GetSection("RipSettings").Get<RipSettings>()
