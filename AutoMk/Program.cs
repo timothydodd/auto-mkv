@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
@@ -19,13 +20,31 @@ namespace AutoMk
 
         static async Task Main(string[] args)
         {
+            // Ensure unicode bar/spinner glyphs render correctly on Windows consoles.
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
+
             // Display startup banner
             DisplayStartupBanner();
 
-            // Clean up any existing HandBrakeCLI processes
-            await CleanupExistingProcesses();
-
             var config = Configure();
+
+            var earlyRipSettings = config.GetSection("RipSettings").Get<RipSettings>();
+
+            // Clean up any existing makemkvcon64 processes — but only when we're wired to a
+            // real MakeMKV binary. In emulator mode the MakeMkvEmulator process is also named
+            // `makemkvcon64`, so this cleanup would kill the long-lived receive server the
+            // user just started alongside AutoMk.
+            if (earlyRipSettings?.UseEmulatedDrives != true)
+            {
+                await CleanupExistingProcesses();
+            }
+            else
+            {
+                // Emulator runs are throwaway tests. Persisted profiles drive AlwaysSkipConfirmation
+                // and other auto-skip behavior, which would turn each run into a race through the
+                // scenarios. Wipe the slate so each emulator session exercises the full prompt flow.
+                PurgeEmulatedDrivesState(earlyRipSettings);
+            }
 
             // Check if initial setup is needed and run it
             if (StartupValidator.CheckAndRunInitialSetup(config))
@@ -115,14 +134,21 @@ namespace AutoMk
                     // Register console output service
                     services.AddSingleton<IConsoleOutputService, ConsoleOutputService>();
 
-                    // Register progress manager for concurrent progress bars
+                    // Register dashboard renderer + progress manager facade
                     services.AddSingleton(new ProgressManagerOptions());
+                    services.AddSingleton<DashboardRenderer>();
                     services.AddSingleton<IProgressManager, ProgressManager>();
 
                     services.AddSingleton<ConsoleInteractionService>();
                     services.AddSingleton<ManualModeService>();
                     services.AddSingleton<IMediaIdentificationService, MediaIdentificationService>();
                     services.AddSingleton<IMediaMoverService, MediaMoverService>();
+
+                    // Transfer queue + its worker hosted service. Transfers are driven by
+                    // the queue, independent of the rip loop — discovered files get handed
+                    // to the queue and workers upload them as soon as a slot is free.
+                    services.AddSingleton<IFileTransferQueue, FileTransferQueue>();
+                    services.AddHostedService<FileTransferBackgroundService>();
 
                     // Register new services for improved user interaction
                     services.AddSingleton<ISeriesProfileService, SeriesProfileService>();
@@ -153,11 +179,10 @@ namespace AutoMk
                         loggingBuilder.AddConfiguration(config.GetSection("Logging"));
                         loggingBuilder.SetMinimumLevel(LogLevel.Trace);
 
-                        // Only add console logging if enabled in settings
-                        if (rip.ShowConsoleLogging)
-                        {
-                            loggingBuilder.AddConsole();
-                        }
+                        // Route console output through the dashboard so log messages share the
+                        // screen with the pinned progress panel instead of scrolling it away.
+                        loggingBuilder.Services.AddSingleton<ILoggerProvider>(sp =>
+                            new DashboardLoggerProvider(sp.GetRequiredService<DashboardRenderer>()));
 
                         loggingBuilder.AddFile(o => o.RootPath = AppContext.BaseDirectory);
                     });
@@ -376,6 +401,7 @@ namespace AutoMk
             services.AddSingleton<IConsoleOutputService, ConsoleOutputService>();
             services.AddSingleton<IOmdbClient, OmdbClient>();
             services.AddSingleton<IFileTransferClient, FileTransferClient>();
+            services.AddSingleton<IFileTransferQueue, FileTransferQueue>();
             services.AddSingleton<IMediaNamingService, MediaNamingService>();
             services.AddSingleton<IMediaMoverService, MediaMoverService>();
             services.AddSingleton<ISeasonInfoCacheService, SeasonInfoCacheService>();
@@ -389,6 +415,60 @@ namespace AutoMk
 
             // Run the discover and name workflow
             discoverService.RunDiscoverAndNameWorkflowAsync().GetAwaiter().GetResult();
+        }
+
+        private static void PurgeEmulatedDrivesState(RipSettings ripSettings)
+        {
+            var dirsToPurge = new List<string>
+            {
+                Path.Combine(Directory.GetCurrentDirectory(), "Profiles"),
+                ResolveStateDirectory(ripSettings),
+            };
+
+            // Output subtrees from previous emulator runs re-queue as phantom transfers on
+            // the next startup (FindFiles scans Output/**). Clear the organized folders and
+            // any leftover rip temp so each run starts from nothing.
+            if (!string.IsNullOrWhiteSpace(ripSettings.Output) && Directory.Exists(ripSettings.Output))
+            {
+                foreach (var name in new[] { "TV Shows", "Movies", "temp", "_moved" })
+                {
+                    dirsToPurge.Add(Path.Combine(ripSettings.Output, name));
+                }
+            }
+
+            foreach (var path in dirsToPurge)
+            {
+                if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    Directory.Delete(path, recursive: true);
+                    AnsiConsole.MarkupLine($"[yellow]Emulated drives: purged[/] [dim]{Markup.Escape(path)}[/]");
+                }
+                catch (Exception ex)
+                {
+                    AnsiConsole.MarkupLine($"[red]Failed to purge[/] [dim]{Markup.Escape(path)}[/]: {Markup.Escape(ex.Message)}");
+                }
+            }
+
+            // Emulator-side state (CurrentDiscIndex) is reset by the emulator itself on its
+            // own `receive` startup — AutoMk intentionally doesn't reach into the emulator's
+            // binary directory to avoid a cross-project dependency.
+        }
+
+        private static string ResolveStateDirectory(RipSettings ripSettings)
+        {
+            var dir = ripSettings.MediaStateDirectory;
+            if (string.IsNullOrWhiteSpace(dir))
+            {
+                dir = "state";
+            }
+            return Path.IsPathRooted(dir)
+                ? dir
+                : Path.Combine(Directory.GetCurrentDirectory(), dir);
         }
 
         private static async Task CleanupExistingProcesses()

@@ -8,17 +8,22 @@ using Microsoft.Extensions.Logging;
 
 namespace AutoMk.Services;
 
+/// <summary>
+/// Scans the output tree for new .mkv files and hands them to the transfer queue. The actual
+/// uploads happen in <see cref="FileTransferBackgroundService"/> so they run independently of
+/// the rip loop — this service is only a producer.
+/// </summary>
 public class MediaMoverService : IMediaMoverService
 {
-    readonly IFileTransferClient _fileTransferClient;
+    readonly IFileTransferQueue _transferQueue;
     readonly FileTransferSettings _fileTransferSettings;
     readonly ILogger<MediaMoverService> _logger;
     readonly HashSet<string> _processedFiles = new(StringComparer.OrdinalIgnoreCase);
 
-    public MediaMoverService(FileTransferSettings fileTransferSettings, IFileTransferClient fileTransferClient, ILogger<MediaMoverService> logger)
+    public MediaMoverService(FileTransferSettings fileTransferSettings, IFileTransferQueue transferQueue, ILogger<MediaMoverService> logger)
     {
         _fileTransferSettings = fileTransferSettings;
-        _fileTransferClient = fileTransferClient;
+        _transferQueue = transferQueue;
         _logger = logger;
     }
 
@@ -36,7 +41,7 @@ public class MediaMoverService : IMediaMoverService
         var allFiles = Directory.GetFiles(outputPath, "*.mkv", SearchOption.AllDirectories);
         _logger.LogDebug("Found {FileCount} .mkv files total", allFiles.Length);
 
-        var filesToTransfer = 0;
+        var filesQueued = 0;
         foreach (var filePath in allFiles)
         {
             if (_processedFiles.Contains(filePath))
@@ -57,43 +62,17 @@ public class MediaMoverService : IMediaMoverService
                 continue;
             }
 
-            //get relative path
             var relativePath = Path.GetRelativePath(outputPath, filePath);
-            filesToTransfer++;
+            filesQueued++;
 
-            _logger.LogInformation("Starting background transfer for file: {RelativePath}", relativePath);
-
-            // Fire and forget - don't await this to prevent blocking the main loop
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    var result = await _fileTransferClient.SendFileInBackground(relativePath, filePath);
-                    if (result == true)
-                    {
-                        _logger.LogInformation("Successfully transferred file: {RelativePath}", relativePath);
-                    }
-                    else if (result == false)
-                    {
-                        _logger.LogWarning("Failed to transfer file: {RelativePath}", relativePath);
-                    }
-                    else
-                    {
-                        _logger.LogDebug("File transfer skipped (disabled): {RelativePath}", relativePath);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error transferring file: {RelativePath}", relativePath);
-                }
-            });
-
+            _logger.LogInformation("Queued transfer: {RelativePath}", relativePath);
+            await _transferQueue.EnqueueAsync(new FileTransferJob(relativePath, filePath));
             _processedFiles.Add(filePath);
         }
 
-        if (filesToTransfer > 0)
+        if (filesQueued > 0)
         {
-            _logger.LogInformation("Started background transfer for {FileCount} files", filesToTransfer);
+            _logger.LogInformation("Queued {FileCount} file(s) for transfer", filesQueued);
         }
         else
         {

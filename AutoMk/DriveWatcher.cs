@@ -57,7 +57,8 @@ public class DriveWatcher : IDisposable
     public DriveWatcher(RipSettings settings)
     {
         _settings = settings;
-        InitializeEventWatcher();
+        if (!_settings.UseEmulatedDrives)
+            InitializeEventWatcher();
     }
 
     private void InitializeEventWatcher()
@@ -93,6 +94,9 @@ public class DriveWatcher : IDisposable
 
     public string OpenDrive(string letter)
     {
+        if (_settings.UseEmulatedDrives)
+            return string.Empty;
+
         const int maxAttempts = 3; // Reduced attempts since modern API is more reliable
         
         for (int attempt = 1; attempt <= maxAttempts; attempt++)
@@ -171,6 +175,9 @@ public class DriveWatcher : IDisposable
 
     public bool IsDriveReady(string letter)
     {
+        if (_settings.UseEmulatedDrives)
+            return true;
+
         var ready = false;
         foreach (
             DriveInfo drive in GetDrives.Where(driveInfo => driveInfo.Name.StartsWith(letter, StringComparison.InvariantCultureIgnoreCase)))
@@ -187,9 +194,23 @@ public class DriveWatcher : IDisposable
 
     public List<DriveInfo> PrintDrives()
     {
+        if (_settings.UseEmulatedDrives)
+        {
+            var table = new Table()
+                .Border(TableBorder.Rounded)
+                .BorderColor(Color.Yellow)
+                .Title("[yellow]Drive List (emulated)[/]")
+                .AddColumn(new TableColumn("[white]Drive[/]").Centered())
+                .AddColumn(new TableColumn("[white]Type[/]").Centered())
+                .AddColumn(new TableColumn("[white]Status[/]").Centered());
+            table.AddRow("[white]EMU:[/]", "[dim]Emulator[/]", "[green]Ready[/]");
+            AnsiConsole.Write(table);
+            return new List<DriveInfo>();
+        }
+
         var drives = GetDrives.ToList();
 
-        var table = new Table()
+        var realTable = new Table()
             .Border(TableBorder.Rounded)
             .BorderColor(Color.Cyan1)
             .Title("[cyan]Drive List[/]")
@@ -201,19 +222,21 @@ public class DriveWatcher : IDisposable
         {
             var statusColor = drive.IsReady ? "green" : "dim";
             var statusText = drive.IsReady ? "Ready" : "Not Ready";
-            table.AddRow(
+            realTable.AddRow(
                 $"[white]{Markup.Escape(drive.Name)}[/]",
                 $"[dim]{drive.DriveType}[/]",
                 $"[{statusColor}]{statusText}[/]"
             );
         }
 
-        AnsiConsole.Write(table);
+        AnsiConsole.Write(realTable);
         return drives;
     }
 
     public bool AnyDriveReady()
     {
+        if (_settings.UseEmulatedDrives)
+            return true;
 
         foreach (
             DriveInfo drive in GetDrives)
@@ -229,6 +252,9 @@ public class DriveWatcher : IDisposable
     }
     public bool AllDrivesReady()
     {
+        if (_settings.UseEmulatedDrives)
+            return true;
+
         var ready = false;
         foreach (
             DriveInfo drive in
@@ -247,6 +273,9 @@ public class DriveWatcher : IDisposable
 
     public bool CanEjectDrive(string letter)
     {
+        if (_settings.UseEmulatedDrives)
+            return true;
+
         try
         {
             string devicePath = $"\\\\.\\{letter.TrimEnd(':')}:";

@@ -370,7 +370,16 @@ public class MakeMkvService : IMakeMkvService
             var success = await _processManager.ExecuteProcessAsync(
                 process,
                 outputHandler: progressHandler,
-                errorHandler: line => _logger.LogWarning("MakeMKV error: {Error}", line)
+                errorHandler: line =>
+                {
+                    // Emulator status messages (e.g. "[EMULATOR] Advanced to disc...") are
+                    // informational, not errors. Downgrade them so they don't pollute the
+                    // warnings stream alongside real MakeMKV failures.
+                    if (line.StartsWith("[EMULATOR]", StringComparison.Ordinal))
+                        _logger.LogInformation("{Line}", line);
+                    else
+                        _logger.LogWarning("MakeMKV error: {Error}", line);
+                }
             );
 
             return success;

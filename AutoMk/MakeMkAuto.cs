@@ -76,7 +76,7 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
     {
         var pdrives = _watcher.PrintDrives();
         _logger.LogInformation("AutoMk Started");
-        if (pdrives.Count == 0)
+        if (pdrives.Count == 0 && !_ripSettings.UseEmulatedDrives)
         {
             _consoleOutput.ShowError("No CD drives found");
             return;
@@ -98,6 +98,9 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
                 _logger.LogInformation("Checking for files to transfer/move...");
                 try
                 {
+                    // Bring the dashboard up before kicking off background transfers so their
+                    // progress bars render in the same Progress panel as the rip progress.
+                    await _progressManager.StartAsync();
                     await _mediaMoverService.FindFiles(_ripSettings.Output);
                     _logger.LogInformation("Completed file transfer/move check");
                 }
@@ -129,10 +132,18 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
             var drives = await GetAvailableDrivesAsync();
             if (!drives.Any())
             {
+                // No disc loaded — keep the dashboard running so transfers and logs remain
+                // visible while we poll again. StopAsync is reserved for the moment we're
+                // actually about to prompt the user in ProcessDriveAsync.
                 _logger.LogInformation("No drives with discs found after drive ready detection, waiting...");
                 await Task.Delay(3000); // Wait before checking again
-                continue; // Continue the loop instead of exiting
+                continue;
             }
+
+            // Disc ready — drop the dashboard so interactive prompts in ProcessDriveAsync
+            // don't fight the live region. Preserved task state means ongoing transfers still
+            // appear once the rip dashboard starts.
+            await _progressManager.StopAsync();
 
             _logger.LogInformation($"Found {drives.Count} drive(s) with discs ready for processing");
 
@@ -151,6 +162,17 @@ public class MakeMkAuto : Microsoft.Extensions.Hosting.BackgroundService
                 _logger.LogInformation($"Drive {drive.DriveLetter} confirmed ready, beginning processing...");
                 await ProcessDriveAsync(drive);
                 _logger.LogInformation($"Completed processing drive {drive.DriveLetter}");
+
+                // Emulated drives return the next disc instantly on the next `info` call, which
+                // makes the loop sprint through every scenario with no chance for the user (or
+                // the background transfers) to see anything. Insert a brief, visible pause so
+                // each disc gets a cycle in the dashboard. Real hardware doesn't need this —
+                // the physical eject/insert cycle already enforces a delay.
+                if (_ripSettings.UseEmulatedDrives)
+                {
+                    _logger.LogInformation("Emulated drives: pausing 5s between discs so progress is observable");
+                    await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                }
             }
         }
     }

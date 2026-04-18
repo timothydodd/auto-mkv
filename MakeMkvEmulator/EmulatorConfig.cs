@@ -31,6 +31,13 @@ public class EmulatorConfiguration
     public int CurrentDiscIndex { get; set; } = 0;
 
     /// <summary>
+    /// When true, the next ListDrives call will rotate to the next disc. Set after any rip
+    /// completes so the emulator advances on its own regardless of which title was ripped.
+    /// </summary>
+    [JsonIgnore]
+    public bool RotatePending { get; set; } = false;
+
+    /// <summary>
     /// Get the currently loaded disc
     /// </summary>
     [JsonIgnore]

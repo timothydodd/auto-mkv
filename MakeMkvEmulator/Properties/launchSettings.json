@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "MakeMkvEmulator": {
+        "commandName": "Project",
+        "commandLineArgs": "receive --port 5000 --reset-state"
+    }
+  } 
+}

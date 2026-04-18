@@ -1,308 +1,130 @@
 using System;
-using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using AutoMk.Interfaces;
 using AutoMk.Models;
 using AutoMk.Utilities;
 using Microsoft.Extensions.Logging;
-using Spectre.Console;
 
 namespace AutoMk.Services;
 
 /// <summary>
-/// Manages concurrent progress bars using Spectre.Console Progress API.
-/// Supports multiple simultaneous progress bars for ripping and file transfers.
+/// Thin facade over <see cref="DashboardRenderer"/> that preserves the <see cref="IProgressManager"/>
+/// contract. All rendering state lives in the dashboard; this class exists to keep the existing
+/// callers (MakeMkvProgressReporter, FileTransferClient, etc.) unchanged.
 /// </summary>
 public class ProgressManager : IProgressManager
 {
     private readonly ILogger<ProgressManager> _logger;
-    private readonly ProgressManagerOptions _options;
+    private readonly DashboardRenderer _renderer;
 
-    // Thread-safe mapping from our GUIDs to Spectre ProgressTasks
-    private readonly ConcurrentDictionary<Guid, ProgressTask> _progressTasks = new();
+    public bool IsActive => _renderer.IsActive;
 
-    // Synchronization
-    private readonly SemaphoreSlim _startStopSemaphore = new(1, 1);
-
-    // Progress context state
-    private ProgressContext? _context;
-    private TaskCompletionSource? _completionSource;
-    private TaskCompletionSource<ProgressContext>? _contextReady;
-    private Task? _displayTask;
-    private volatile bool _isActive;
-
-    public bool IsActive => _isActive;
-
-    public ProgressManager(
-        ILogger<ProgressManager> logger,
-        ProgressManagerOptions? options = null)
+    public ProgressManager(ILogger<ProgressManager> logger, DashboardRenderer renderer)
     {
         _logger = ValidationHelper.ValidateNotNull(logger);
-        _options = options ?? new ProgressManagerOptions();
+        _renderer = ValidationHelper.ValidateNotNull(renderer);
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken = default)
-    {
-        await _startStopSemaphore.WaitAsync(cancellationToken);
-        try
-        {
-            if (_isActive)
-                return;
+    public Task StartAsync(CancellationToken cancellationToken = default) =>
+        _renderer.StartAsync(cancellationToken);
 
-            _completionSource = new TaskCompletionSource();
-            _contextReady = new TaskCompletionSource<ProgressContext>();
+    public Task StopAsync() => _renderer.StopAsync();
 
-            // Start the Progress display in a background task
-            _displayTask = Task.Run(async () =>
-            {
-                await AnsiConsole.Progress()
-                    .AutoRefresh(true)
-                    .AutoClear(false)
-                    .HideCompleted(false)
-                    .Columns(
-                        new TaskDescriptionColumn(),
-                        new ProgressBarColumn(),
-                        new PercentageColumn(),
-                        new RemainingTimeColumn(),
-                        new SpinnerColumn())
-                    .StartAsync(async ctx =>
-                    {
-                        // Signal that the context is ready
-                        _contextReady!.SetResult(ctx);
+    public Task PauseAsync() => _renderer.StopAsync();
 
-                        // Wait until StopAsync is called
-                        await _completionSource!.Task;
-                    });
-            }, cancellationToken);
+    public Task ResumeAsync(CancellationToken cancellationToken = default) =>
+        _renderer.StartAsync(cancellationToken);
 
-            // Wait for the context to be available
-            _context = await _contextReady.Task;
-            _isActive = true;
-
-            _logger.LogDebug("ProgressManager started with Spectre.Console Progress");
-        }
-        finally
-        {
-            _startStopSemaphore.Release();
-        }
-    }
-
-    public async Task StopAsync()
-    {
-        await _startStopSemaphore.WaitAsync();
-        try
-        {
-            if (!_isActive)
-                return;
-
-            _isActive = false;
-
-            // Signal the Progress context to complete
-            _completionSource?.TrySetResult();
-
-            if (_displayTask != null)
-            {
-                try
-                {
-                    await _displayTask;
-                }
-                catch (OperationCanceledException)
-                {
-                    // Expected during shutdown
-                }
-            }
-
-            // Clear state
-            _progressTasks.Clear();
-            _context = null;
-            _displayTask = null;
-            _completionSource = null;
-            _contextReady = null;
-
-            _logger.LogDebug("ProgressManager stopped");
-        }
-        finally
-        {
-            _startStopSemaphore.Release();
-        }
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        await StopAsync();
-        _startStopSemaphore.Dispose();
-    }
-
-    /// <summary>
-    /// Pauses the progress display (stops it temporarily, e.g., during user prompts).
-    /// </summary>
-    public async Task PauseAsync()
-    {
-        // Simply stop the display - tasks will be re-created when resumed
-        await StopAsync();
-    }
-
-    /// <summary>
-    /// Resumes the progress display after a pause.
-    /// </summary>
-    public async Task ResumeAsync(CancellationToken cancellationToken = default)
-    {
-        // Simply start the display again
-        await StartAsync(cancellationToken);
-    }
-
-    // === Progress Task Management ===
+    public ValueTask DisposeAsync() => _renderer.DisposeAsync();
 
     public Guid CreateProgressTask(string description, double maxValue = 100, string? category = null)
     {
-        if (_context == null)
-        {
-            _logger.LogWarning("Cannot create progress task - ProgressManager not active");
-            return Guid.Empty;
-        }
-
-        var id = Guid.NewGuid();
-        var task = _context.AddTask(description, autoStart: true, maxValue: maxValue);
-        _progressTasks[id] = task;
-
-        _logger.LogDebug("Created progress task {TaskId}: {Description}", id, description);
-        return id;
+        // Always register the task. If the dashboard isn't active yet (e.g. file transfer
+        // fires before the rip starts), state is still captured and becomes visible the
+        // next time the dashboard renders.
+        return _renderer.CreateTask(description, maxValue, category);
     }
 
     public void UpdateProgress(Guid taskId, double value, string? description = null)
     {
-        if (_progressTasks.TryGetValue(taskId, out var task))
-        {
-            task.Value = Math.Min(value, task.MaxValue);
-            if (description != null)
-                task.Description = description;
-        }
+        if (taskId == Guid.Empty) return;
+        _renderer.UpdateTask(taskId, value, description);
     }
 
     public void IncrementProgress(Guid taskId, double increment)
     {
-        if (_progressTasks.TryGetValue(taskId, out var task))
-        {
-            task.Increment(increment);
-        }
+        if (taskId == Guid.Empty) return;
+        _renderer.IncrementTask(taskId, increment);
     }
 
     public void UpdateProgressBytes(Guid taskId, long bytesTransferred, long totalBytes,
         double? transferRateMBps = null, TimeSpan? timeRemaining = null)
     {
-        if (_progressTasks.TryGetValue(taskId, out var task))
-        {
-            // Calculate percentage and update
-            var percentage = totalBytes > 0 ? (double)bytesTransferred / totalBytes * task.MaxValue : 0;
-            task.Value = percentage;
-
-            // Update description with transfer rate if available
-            if (transferRateMBps.HasValue)
-            {
-                var rateStr = $"{transferRateMBps.Value:F1} MB/s";
-                var currentDesc = task.Description;
-                // Append rate to description if not already present
-                if (!currentDesc.Contains("MB/s"))
-                {
-                    task.Description = $"{currentDesc} ({rateStr})";
-                }
-            }
-        }
+        if (taskId == Guid.Empty) return;
+        _renderer.UpdateTaskBytes(taskId, bytesTransferred, totalBytes, transferRateMBps, timeRemaining);
     }
 
     public void CompleteProgressTask(Guid taskId)
     {
-        if (_progressTasks.TryGetValue(taskId, out var task))
-        {
-            task.Value = task.MaxValue;
-            task.StopTask();
-        }
+        if (taskId == Guid.Empty) return;
+        _renderer.CompleteTask(taskId);
     }
 
     public void RemoveProgressTask(Guid taskId)
     {
-        if (_progressTasks.TryRemove(taskId, out var task))
-        {
-            // Mark as complete if not already
-            if (!task.IsFinished)
-            {
-                task.StopTask();
-            }
-        }
+        if (taskId == Guid.Empty) return;
+        _renderer.RemoveTask(taskId);
     }
-
-    // === Logging ===
-    // Note: Spectre.Console Progress doesn't have a built-in log area,
-    // so we log directly to the logger and console when not active
 
     public void Log(string message, ProgressLogLevel level = ProgressLogLevel.Info)
     {
-        var logLevel = level switch
-        {
-            ProgressLogLevel.Debug => LogLevel.Debug,
-            ProgressLogLevel.Info => LogLevel.Information,
-            ProgressLogLevel.Warning => LogLevel.Warning,
-            ProgressLogLevel.Error => LogLevel.Error,
-            ProgressLogLevel.Success => LogLevel.Information,
-            _ => LogLevel.Information
-        };
-        _logger.Log(logLevel, "{Message}", message);
+        // File logger captures via ILogger; dashboard panel is updated directly so Success
+        // styling and markup flavor are preserved. DashboardLogger filters this category out
+        // to avoid double entries in the panel.
+        _logger.Log(MapLevel(level), "{Message}", message);
 
-        // If not active, write to console
-        if (!_isActive)
-        {
-            WriteToConsole(message, level, isMarkup: false);
-        }
+        if (_renderer.IsActive)
+            _renderer.AppendLog(message, level, isMarkup: false);
+        else
+            WriteFallback(message, level, isMarkup: false);
     }
 
     public void LogMarkup(string markup, ProgressLogLevel level = ProgressLogLevel.Info)
     {
-        var logLevel = level switch
+        _logger.Log(MapLevel(level), "{Message}", markup);
+
+        if (_renderer.IsActive)
+            _renderer.AppendLog(markup, level, isMarkup: true);
+        else
+            WriteFallback(markup, level, isMarkup: true);
+    }
+
+    private static void WriteFallback(string message, ProgressLogLevel level, bool isMarkup)
+    {
+        var (label, style) = level switch
         {
-            ProgressLogLevel.Debug => LogLevel.Debug,
-            ProgressLogLevel.Info => LogLevel.Information,
-            ProgressLogLevel.Warning => LogLevel.Warning,
-            ProgressLogLevel.Error => LogLevel.Error,
-            ProgressLogLevel.Success => LogLevel.Information,
-            _ => LogLevel.Information
+            ProgressLogLevel.Debug => ("DBG ", "dim"),
+            ProgressLogLevel.Warning => ("WARN", "yellow"),
+            ProgressLogLevel.Error => ("ERR ", "red"),
+            ProgressLogLevel.Success => ("OK  ", "green"),
+            _ => ("INFO", "blue")
         };
-        _logger.Log(logLevel, "{Message}", markup);
-
-        // If not active, write to console
-        if (!_isActive)
-        {
-            WriteToConsole(markup, level, isMarkup: true);
-        }
+        var body = isMarkup ? message : Spectre.Console.Markup.Escape(message);
+        Spectre.Console.AnsiConsole.MarkupLine($"[{style}]{label}[/] {body}");
     }
 
-    private static void WriteToConsole(string message, ProgressLogLevel level, bool isMarkup)
+    public void SetStatus(string status) => _logger.LogDebug("Status: {Status}", status);
+
+    public void ClearStatus() { }
+
+    private static LogLevel MapLevel(ProgressLogLevel level) => level switch
     {
-        var prefix = level switch
-        {
-            ProgressLogLevel.Debug => "[dim]DBG [/]",
-            ProgressLogLevel.Info => "[blue]INFO[/]",
-            ProgressLogLevel.Warning => "[yellow]WARN[/]",
-            ProgressLogLevel.Error => "[red]ERR [/]",
-            ProgressLogLevel.Success => "[green]OK  [/]",
-            _ => "[white]... [/]"
-        };
-
-        var displayMessage = isMarkup ? message : Markup.Escape(message);
-        AnsiConsole.MarkupLine($"{prefix} {displayMessage}");
-    }
-
-    // === Status ===
-
-    public void SetStatus(string status)
-    {
-        // Status not directly supported in Progress API
-        // Log it instead
-        _logger.LogInformation("Status: {Status}", status);
-    }
-
-    public void ClearStatus()
-    {
-        // No-op for Progress API
-    }
+        ProgressLogLevel.Debug => LogLevel.Debug,
+        ProgressLogLevel.Info => LogLevel.Information,
+        ProgressLogLevel.Warning => LogLevel.Warning,
+        ProgressLogLevel.Error => LogLevel.Error,
+        ProgressLogLevel.Success => LogLevel.Information,
+        _ => LogLevel.Information
+    };
 }

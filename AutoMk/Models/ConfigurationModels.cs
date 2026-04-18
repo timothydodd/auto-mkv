@@ -29,6 +29,13 @@ public class RipSettings : ISizeConfigurable, IChapterConfigurable
     public ModeSelectionSetting ModeSelection { get; set; } = ModeSelectionSetting.Ask;
     public bool ShowConsoleLogging { get; set; } = false;
     public bool ShowProgressMessages { get; set; } = true;
+
+    /// <summary>
+    /// When true, DriveWatcher skips all OS drive I/O (IOCTL eject, WMI watches, libcdrom polling)
+    /// and reports all drives as ready. Use with MakeMkvEmulator so the app runs without a real
+    /// optical drive.
+    /// </summary>
+    public bool UseEmulatedDrives { get; set; } = false;
 }
 
 public class NameItem

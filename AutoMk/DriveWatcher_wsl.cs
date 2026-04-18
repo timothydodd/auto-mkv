@@ -28,6 +28,9 @@ namespace AutoMk
 
         public string OpenDrive(string letter)
         {
+            if (_settings.UseEmulatedDrives)
+                return string.Empty;
+
             string returnString = "";
             const int maxAttempts = 10; // Maximum 10 seconds to try ejecting
             int attempts = 0;
@@ -79,6 +82,9 @@ namespace AutoMk
 
         public bool IsDriveReady(string letter)
         {
+            if (_settings.UseEmulatedDrives)
+                return true;
+
             bool ready = false;
             foreach (
                 DriveInfo drive in GetDrives.Where(driveInfo => driveInfo.Name.StartsWith(letter, StringComparison.InvariantCultureIgnoreCase)))
@@ -95,6 +101,20 @@ namespace AutoMk
 
         public List<DriveInfo> PrintDrives()
         {
+            if (_settings.UseEmulatedDrives)
+            {
+                var emuTable = new Table()
+                    .Border(TableBorder.Rounded)
+                    .BorderColor(Color.Yellow)
+                    .Title("[yellow]Drive List (emulated)[/]")
+                    .AddColumn(new TableColumn("[white]Drive[/]").Centered())
+                    .AddColumn(new TableColumn("[white]Type[/]").Centered())
+                    .AddColumn(new TableColumn("[white]Status[/]").Centered());
+                emuTable.AddRow("[white]EMU:[/]", "[dim]Emulator[/]", "[green]Ready[/]");
+                AnsiConsole.Write(emuTable);
+                return new List<DriveInfo>();
+            }
+
             List<DriveInfo> drives = GetDrives.ToList();
 
             var table = new Table()
@@ -122,6 +142,8 @@ namespace AutoMk
 
         public bool AnyDriveReady()
         {
+            if (_settings.UseEmulatedDrives)
+                return true;
 
             foreach (
                 DriveInfo drive in GetDrives)
@@ -137,6 +159,9 @@ namespace AutoMk
         }
         public bool AllDrivesReady()
         {
+            if (_settings.UseEmulatedDrives)
+                return true;
+
             bool ready = false;
             IEnumerable<DriveInfo> items = GetDrives;
             foreach (

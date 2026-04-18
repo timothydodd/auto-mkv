@@ -23,7 +23,6 @@ public class FileTransferClient : IFileTransferClient
     private readonly ILogger<FileTransferClient> _logger;
     private readonly IConsoleOutputService _consoleOutput;
     private readonly IProgressManager _progressManager;
-    private readonly SemaphoreSlim _transferSemaphore;
 
     public FileTransferClient(
         HttpClient httpClient,
@@ -38,11 +37,11 @@ public class FileTransferClient : IFileTransferClient
         _consoleOutput = ValidationHelper.ValidateNotNull(consoleOutput);
         _progressManager = ValidationHelper.ValidateNotNull(progressManager);
 
-        // Limit concurrent transfers
-        _transferSemaphore = new SemaphoreSlim(_settings.MaxConcurrentTransfers, _settings.MaxConcurrentTransfers);
-
         // Configure HttpClient timeout for large file transfers
         _httpClient.Timeout = TimeSpan.FromMinutes(_settings.TransferTimeoutMinutes);
+
+        // Concurrency is enforced by FileTransferBackgroundService's worker count —
+        // MaxConcurrentTransfers drives how many workers it spawns. No per-client semaphore.
     }
 
     public async Task<bool> SendFileAsync(string relativePath, string filePath, CancellationToken cancellationToken = default)
@@ -60,6 +59,16 @@ public class FileTransferClient : IFileTransferClient
             return false;
         }
 
+        // Register the progress task up front so each queued file is visible in the dashboard
+        // the instant it's fired — including the ones stuck waiting on the semaphore while
+        // MaxConcurrentTransfers throttles throughput. The description shifts to "Queued:" /
+        // "Transferring:" as the state progresses.
+        var fileNameForTask = Path.GetFileName(filePath);
+        var progressTaskId = _progressManager.CreateProgressTask(
+            $"Queued: {fileNameForTask}",
+            maxValue: 100,
+            category: "Transfer");
+
         // Check if target service is available with a short timeout
         _logger.LogInformation("Checking if file transfer service is available at: {ServiceUrl}", _settings.TargetServiceUrl);
         using var healthCheckCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -69,18 +78,15 @@ public class FileTransferClient : IFileTransferClient
         {
             _logger.LogWarning("Target service is not available (health check failed or timed out), skipping file transfer for: {FilePath}", filePath);
             _consoleOutput.ShowError($"Transfer failed - Service unavailable at {_settings.TargetServiceUrl} (health check failed)");
+            _progressManager.RemoveProgressTask(progressTaskId);
             return false;
         }
 
         _logger.LogInformation("File transfer service is available, proceeding with transfer");
 
-        await _transferSemaphore.WaitAsync(cancellationToken);
-
-        Guid? progressTaskId = null;
-
         try
         {
-            var fileName = Path.GetFileName(filePath);
+            var fileName = fileNameForTask;
             _logger.LogInformation("Starting transfer of {FileName} to {ServiceUrl}", fileName, _settings.TargetServiceUrl);
             _consoleOutput.ShowFileTransferStarted(fileName, _settings.TargetServiceUrl);
 
@@ -93,14 +99,9 @@ public class FileTransferClient : IFileTransferClient
                 RelativeFilePath = relativePath
             };
 
-            // Create progress task if ProgressManager is active
-            if (_progressManager.IsActive)
-            {
-                progressTaskId = _progressManager.CreateProgressTask(
-                    $"Transferring: {fileName}",
-                    maxValue: 100,
-                    category: "Transfer");
-            }
+            // Flip label from "Queued:" to "Transferring:" now that this transfer is the
+            // active one holding the semaphore.
+            _progressManager.UpdateProgress(progressTaskId, 0, $"Transferring: {fileName}");
 
             bool success;
             // Wrap the FileStream in its own scope so it gets disposed before we try to move the file
@@ -108,27 +109,22 @@ public class FileTransferClient : IFileTransferClient
                 using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read,
                     bufferSize: _settings.BufferSizeBytes, useAsync: true);
 
-                // Create progress callback for ProgressManager
-                Action<long, long, double, TimeSpan>? progressCallback = null;
-                if (progressTaskId.HasValue)
+                Action<long, long, double, TimeSpan> progressCallback = (bytesTransferred, totalBytes, transferRateMBps, timeRemaining) =>
                 {
-                    var taskId = progressTaskId.Value;
-                    progressCallback = (bytesTransferred, totalBytes, transferRateMBps, timeRemaining) =>
-                    {
-                        _progressManager.UpdateProgressBytes(taskId, bytesTransferred, totalBytes, transferRateMBps, timeRemaining);
-                    };
-                }
+                    _progressManager.UpdateProgressBytes(progressTaskId, bytesTransferred, totalBytes, transferRateMBps, timeRemaining);
+                };
 
                 success = await TransferFileAsync(fileStream, transferRequest, fileName, progressCallback, cancellationToken);
             } // FileStream is disposed here, releasing the file lock
 
             if (success)
             {
-                // Mark progress task as complete
-                if (progressTaskId.HasValue)
-                {
-                    _progressManager.CompleteProgressTask(progressTaskId.Value);
-                }
+                // Pin to 100% before completing so the rendered state is unambiguous even
+                // if the final SerializeToStreamAsync tick never fired (small file, TCP
+                // buffer absorbed the whole body before any 100ms update).
+                _progressManager.UpdateProgressBytes(progressTaskId,
+                    fileInfo.Length, fileInfo.Length);
+                _progressManager.CompleteProgressTask(progressTaskId);
 
                 _logger.LogInformation("Successfully transferred {FileName}", fileName);
                 _consoleOutput.ShowFileTransferCompleted(fileName);
@@ -195,27 +191,15 @@ public class FileTransferClient : IFileTransferClient
             }
             else
             {
-                // Remove progress task on failure
-                if (progressTaskId.HasValue)
-                {
-                    _progressManager.RemoveProgressTask(progressTaskId.Value);
-                }
+                _progressManager.RemoveProgressTask(progressTaskId);
             }
 
             return success;
         }
         catch (Exception)
         {
-            // Remove progress task on exception
-            if (progressTaskId.HasValue)
-            {
-                _progressManager.RemoveProgressTask(progressTaskId.Value);
-            }
+            _progressManager.RemoveProgressTask(progressTaskId);
             throw;
-        }
-        finally
-        {
-            _transferSemaphore.Release();
         }
     }
 
@@ -273,7 +257,7 @@ public class FileTransferClient : IFileTransferClient
         Stream fileStream,
         FileTransferRequest request,
         string fileName,
-        Action<long, long, double, TimeSpan>? progressCallback,
+        Action<long, long, double, TimeSpan> progressCallback,
         CancellationToken cancellationToken)
     {
         try
@@ -295,12 +279,6 @@ public class FileTransferClient : IFileTransferClient
             content.Add(progressStream, "file", request.OriginalFileName);
 
             var response = await _httpClient.PostAsync($"{_settings.TargetServiceUrl}/upload", content, cancellationToken);
-
-            // Ensure we end the progress line with a newline (only if not using ProgressManager)
-            if (_settings.Enabled && !_progressManager.IsActive)
-            {
-                AnsiConsole.WriteLine();
-            }
 
             if (response.IsSuccessStatusCode)
             {
@@ -424,9 +402,10 @@ public class ProgressTrackingStreamContent : HttpContent
             await stream.WriteAsync(buffer, 0, bytesRead);
             _bytesTransferred += bytesRead;
 
-            // Update progress every 500ms to avoid overwhelming the console
+            // Update progress every 100ms — matches the dashboard's render cadence so the
+            // bar actually advances during slow transfers instead of snapping through.
             var now = DateTime.UtcNow;
-            if ((now - _lastUpdateTime).TotalMilliseconds >= 500)
+            if ((now - _lastUpdateTime).TotalMilliseconds >= 100)
             {
                 try
                 {
